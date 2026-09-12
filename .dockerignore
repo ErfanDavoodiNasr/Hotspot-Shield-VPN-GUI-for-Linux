@@ -1,0 +1,14 @@
+**/.secrets
+**/.secrets/**
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/.git
+**/.pytest_cache
+**/htmlcov
+**/coverage.xml
+**/.coverage
+**/._*
+**/.DS_Store
+**/Thumbs.db

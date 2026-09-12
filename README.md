@@ -1,41 +1,201 @@
-# Hotspot-Shield-VPN-GUI-for-Linux
-This is a Python3 GUI for the Linux Hotspot Shield VPN application. There is no official GUI. Command line configuration is tedious. This one is easy to use. 
+# Hotspot Shield GUI for Linux
 
-Requirements:
- - Hotspot Shield VPN Linux installation package (hotspotshield_1.0.7_amd64.deb)
- - Tkinter (sudo apt install python3-tk)
- - Pexpect module (pip install pexpect)
- - Curl module (sudo apt install curl)
+A simple, friendly desktop app for Hotspot Shield on Linux.
 
-Note: A 'requirments.txt' file is included. Use "pip install -r requirements.txt" to install.
- 
+There is no official Hotspot Shield GUI for Linux. This app gives you one: clear status, searchable locations, one-click
+connect/disconnect, and safe server switching — without using the terminal.
 
- # vpngui.py
- Main program. Runs the GUI.
- - Checks to see if the VPN is already in the active state.
- - Prompts for Username, Password and VPN termination location. Location defaults to "US - United States".
- - Presents the option to start VPN if not started, and to stop the VPN if started, with one button. 
- - Displays the status of the VPN (connected/notconnected) and IP/location information related to VPN termination point.
+![Main window](docs/screenshots/01-main-disconnected.png)
 
- Notes:
- - You can exit the vpngui.py app and, by default, the VPN will stay connected until VPN timers expire or there is a service interuption.
- - If the VPN is active and you want to change the VPN location you must stop the VPN first, choose the new location, then start the VPN again.
- - Place this file in /usr/local/bin and change permissions to allow execute (chmod +x vpngui.py)
- 
- # vpnconfig.py
- Configuration file that must be initially edited. It will contain your default username, password and VPN location.
- 
- Example:
- 
-    vpnusername = 'your@email.here'
-    
-    vpnpassword = 'your_password_here'
-    
-    defaultlocation = 'US - United States'
+---
 
-Notes:
-- Place this file in /usr/local/bin and change permissions to allow write and execute (chmod +xrw vpnconfig.py)
-- Edit the file to reflect your vpn username and your password
+## Features
 
-# hotspot-shield.desktop
-This is the application shortcut. Copy this to the desktop. Right click on it and click 'Allow Launching'. The shortcut assumes you have the python files in /usr/local/bin/. It also assumes you are using /usr/share/icons/HighContrast/48x48/status/network-wireless-hotspot.png as the icon. Adjust the contents as necessary to reflect the location and filenames in your implementation.
+- See VPN status, selected location, and public IP at a glance
+- Search locations instantly (keyboard-friendly)
+- Connect / Disconnect with one primary button
+- Change servers while connected (automatic disconnect → reconnect)
+- Friendly error messages (no Python tracebacks)
+- Sign in through the app — no editing config files
+- Quick installer for everyday users
+
+---
+
+## Install (normal users)
+
+You need:
+
+1. A Linux computer (Ubuntu or Debian recommended)
+2. The official **Hotspot Shield** Linux CLI (Premium account)
+3. This app
+
+### Step 1 — Install Hotspot Shield CLI
+
+Download the Linux package from your [Hotspot Shield account](https://www.hotspotshield.com/vpn/vpn-for-linux) and
+install it (example for Ubuntu/Debian):
+
+```bash
+sudo apt install ./hotspotshield_*.deb
+```
+
+Confirm it works:
+
+```bash
+hotspotshield help
+```
+
+### Step 2 — Install this app
+
+```bash
+git clone https://github.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux.git
+cd Hotspot-Shield-VPN-GUI-for-Linux
+./install.sh
+```
+
+### Step 3 — Open the app
+
+Open **Hotspot Shield GUI** from your application menu,
+
+or run:
+
+```bash
+hotspotshield-gui
+```
+
+> Tip: make sure `~/.local/bin` is on your PATH. The installer will warn you if it is not.
+
+---
+
+## How to connect
+
+1. Open the app
+2. Click **Account…** and enter your Hotspot Shield Premium email and password
+3. Search or pick a location on the right
+4. Click **Connect**
+5. Wait until the status says **Connected**
+
+![Connected](docs/screenshots/03-connected.png)
+
+---
+
+## How to change location
+
+1. While **Connected**, search for another location
+2. Double-click it (or press **Enter**)
+3. The app disconnects, reconnects, and shows the new location
+
+![Location search](docs/screenshots/02-location-search.png)
+
+---
+
+## How to disconnect
+
+Click **Disconnect**.
+
+Closing the window **leaves the VPN connected**. That way you can close the UI without dropping your connection.
+
+---
+
+## Upgrade
+
+```bash
+cd Hotspot-Shield-VPN-GUI-for-Linux
+git pull
+./install.sh --upgrade
+```
+
+---
+
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Add `--purge-config` to also remove saved preferences. This never removes the official Hotspot Shield CLI.
+
+---
+
+## Troubleshooting
+
+| Problem                           | What to do                                                                          |
+|-----------------------------------|-------------------------------------------------------------------------------------|
+| “Hotspot Shield is not installed” | Install the official CLI package, then reopen the app                               |
+| Sign-in failed                    | Use Premium credentials; open **Account…** and try again                            |
+| No locations                      | Sign in first, check internet, click **Retry**                                      |
+| Stuck waiting                     | Click **Cancel** if shown, or **Refresh status**                                    |
+| Connection failed                 | Try another location; check internet                                                |
+| App won’t open                    | Install Tk: `sudo apt install python3-tk`                                           |
+| Command not found                 | Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, then open a new terminal |
+
+Friendly errors look like this (never a traceback):
+
+![Error dialog](docs/screenshots/04-error-dialog.png)
+
+Logs (passwords redacted): `~/.local/state/hotspotshield-gui/app.log`
+
+---
+
+## Architecture (developers)
+
+```text
+src/hotspotshield_gui/
+  app.py              entry point
+  ui/                 Tkinter UI
+  controllers/        state machine + background work
+  services/           VPN + IP
+  cli/                process runner, parser, CLI client
+  models/             VpnState, Location
+  security/           secrets + redaction
+  config/             preferences
+```
+
+---
+
+## Development setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+make install-dev
+make test
+make lint
+make typecheck
+```
+
+Useful targets: `make test-unit`, `make test-integration`, `make test-gui`, `make test-security`, `make test-docker`,
+`make test-live`, `make coverage`.
+
+Hermetic tests use `scripts/fake_hotspotshield.py` and never touch a real VPN.
+
+Live tests need a **real Linux desktop/VM** where `hotspotshield start` works (not Docker Desktop):
+
+```bash
+# credentials only via .secrets/ or env — never commit them
+make test-live
+```
+
+Capture docs screenshots (Linux + Xvfb + Pillow):
+
+```bash
+python scripts/capture_screenshots.py
+```
+
+---
+
+## Security notes
+
+- Never put passwords in source files
+- Prefer the desktop keyring (Account dialog)
+- Optional local secrets for live tests only: `.secrets/hotspotshield_username` and `.secrets/hotspotshield_password` (
+  gitignored)
+- Set `HOTSPOTSHIELD_USE_SECRETS_FILE=1` if you intentionally want `.secrets/` to override the keyring
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Hotspot Shield® is a trademark of its respective owner. This project is an unofficial community GUI and is not
+affiliated with Pango / Hotspot Shield.

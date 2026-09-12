@@ -1,0 +1,20 @@
+# Clean Ubuntu image for installer validation (no secrets)
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-tk \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+# Fail if secrets were accidentally copied (build context should exclude them)
+RUN if [ -d /src/.secrets ]; then echo "ERROR: .secrets leaked into image" >&2; exit 1; fi
+
+CMD ["./install.sh", "--yes"]

@@ -1,7 +1,4 @@
-"""Compatibility shim for the legacy entry point.
-
-Prefer: ``hotspotshield-gui`` or ``python -m hotspotshield_gui``.
-"""
+"""Allow ``python -m hotspotshield_gui``."""
 
 from __future__ import annotations
 

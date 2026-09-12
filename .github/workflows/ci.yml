@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb shellcheck
+
+      - name: Install package
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check src tests
+          shellcheck install.sh uninstall.sh
+
+      - name: Typecheck
+        run: mypy src/hotspotshield_gui
+
+      - name: Security (bandit)
+        run: bandit -r src -q
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tests under Xvfb
+        run: |
+          xvfb-run -a pytest -m "not live" --cov=hotspotshield_gui --cov-report=term-missing --cov-report=xml
+
+      - name: Installer dry-run
+        run: ./install.sh --dry-run --yes
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build hermetic test image
+        run: docker build -f docker/Dockerfile -t hotspotshield-gui:test .
+      - name: Run hermetic suite
+        run: docker run --rm hotspotshield-gui:test
+      - name: Build installer image (no secrets)
+        run: |
+          docker build -f docker/Dockerfile.installer -t hotspotshield-gui:installer .
+          docker history hotspotshield-gui:installer
+      - name: Run installer in clean container
+        run: |
+          docker run --rm hotspotshield-gui:installer ./install.sh --yes
+          docker run --rm hotspotshield-gui:installer bash -lc './install.sh --yes && ./install.sh --yes --upgrade && ./uninstall.sh --yes'

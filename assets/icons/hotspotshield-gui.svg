@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Hotspot Shield GUI">
+    <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0B6E4F"/>
+            <stop offset="100%" stop-color="#1FA971"/>
+        </linearGradient>
+    </defs>
+    <rect width="128" height="128" rx="28" fill="#0F171C"/>
+    <path d="M64 18c18 10 34 12 34 12v34c0 24-16 40-34 48-18-8-34-24-34-48V30s16-2 34-12z" fill="url(#g)"/>
+    <circle cx="64" cy="58" r="14" fill="#0F171C"/>
+    <path d="M64 48v20M54 58h20" stroke="#E7EEF2" stroke-width="4" stroke-linecap="round"/>
+</svg>

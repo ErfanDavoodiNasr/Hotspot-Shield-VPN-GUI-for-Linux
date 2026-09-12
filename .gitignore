@@ -1,0 +1,50 @@
+# Secrets — never commit
+.secrets/
+.env
+.env.*
+*.secret
+credentials*
+!*credentials*.py
+!**/test*credentials*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Tooling / IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Runtime / local state
+*.log
+.cache/
+tmp/
+/tmp/
+
+# Installer staging leftovers
+.install-staging/
+
+# macOS AppleDouble
+._*
+.AppleDouble
+
+# Extracted vendor packages (keep the .deb if intentionally vendored)
+*.extracted/

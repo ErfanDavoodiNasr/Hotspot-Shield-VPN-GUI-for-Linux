@@ -1,4 +1,4 @@
-"""Credential storage using the desktop keyring with a restricted file fallback."""
+"""Credential storage using the desktop keyring with explicit opt-in fallbacks."""
 
 from __future__ import annotations
 
@@ -6,8 +6,11 @@ import json
 import logging
 import os
 import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from hotspotshield_gui.utils.errors import PlaintextFallbackDisabledError
 
 logger = logging.getLogger("hotspotshield_gui.security.secret_store")
 
@@ -33,29 +36,22 @@ class SecretStore:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self._fallback_path = self.config_dir / "credentials.json"
         self._prefs_path = self.config_dir / "preferences.json"
+        self._session: Credentials | None = None
 
     def load(self) -> Credentials | None:
-        # Explicit test / operator secrets (opt-in file override for live tests).
         env_user = os.environ.get("HOTSPOTSHIELD_USERNAME", "").strip()
         env_pass = os.environ.get("HOTSPOTSHIELD_PASSWORD", "")
         if env_user and env_pass:
             return Credentials(env_user, env_pass)
 
-        use_secret_files = os.environ.get("HOTSPOTSHIELD_USE_SECRETS_FILE", "").strip() in {
-            "1",
-            "true",
-            "yes",
-        }
-        if use_secret_files:
-            for directory in (
-                Path.cwd() / ".secrets",
-                Path.home() / ".config" / "hotspotshield-gui" / ".secrets",
-            ):
+        # Secret files only when explicitly opted in (tests / operators).
+        # Never auto-load cwd/.secrets in production — cwd may be attacker-controlled.
+        if _env_flag("HOTSPOTSHIELD_USE_SECRETS_FILE"):
+            for directory in self._secret_file_dirs():
                 file_creds = self._load_secret_files(directory)
                 if file_creds is not None:
                     return file_creds
 
-        # Desktop keyring
         try:
             import keyring
 
@@ -66,17 +62,13 @@ class SecretStore:
         except Exception as exc:  # noqa: BLE001 — keyring backends vary widely
             logger.debug("Keyring unavailable: %s", exc)
 
-        # Restricted local fallback, then optional .secrets without env flag (dev convenience)
+        # Existing opt-in plaintext file (created only with explicit allow flag).
         fallback = self._load_fallback()
         if fallback is not None:
             return fallback
-        for directory in (
-            Path.cwd() / ".secrets",
-            Path.home() / ".config" / "hotspotshield-gui" / ".secrets",
-        ):
-            file_creds = self._load_secret_files(directory)
-            if file_creds is not None:
-                return file_creds
+
+        if self._session is not None:
+            return self._session
         return None
 
     def save(self, credentials: Credentials) -> None:
@@ -90,16 +82,24 @@ class SecretStore:
             keyring.set_password(SERVICE_NAME, USERNAME_KEY, credentials.username)
             keyring.set_password(SERVICE_NAME, PASSWORD_KEY, credentials.password)
             stored_in_keyring = True
-            # Remove insecure fallback if keyring succeeded.
             if self._fallback_path.exists():
                 self._fallback_path.unlink()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unable to store credentials in keyring: %s", exc)
 
-        if not stored_in_keyring:
+        if stored_in_keyring:
+            self._session = None
+            return
+
+        # Session-only by default — never silently write plaintext passwords.
+        self._session = credentials
+        if _env_flag("HOTSPOTSHIELD_ALLOW_PLAINTEXT_FALLBACK"):
             self._save_fallback(credentials)
+            return
+        raise PlaintextFallbackDisabledError()
 
     def clear(self) -> None:
+        self._session = None
         try:
             import keyring
 
@@ -123,10 +123,37 @@ class SecretStore:
             return {}
 
     def save_preferences(self, prefs: dict[str, object]) -> None:
-        # Never persist secrets inside preferences.
         safe = {k: v for k, v in prefs.items() if "password" not in k.lower()}
-        self._prefs_path.write_text(json.dumps(safe, indent=2) + "\n", encoding="utf-8")
-        self._prefs_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        payload = json.dumps(safe, indent=2) + "\n"
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".prefs.",
+            suffix=".tmp",
+            dir=str(self.config_dir),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, self._prefs_path)
+            self._prefs_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        finally:
+            if os.path.exists(tmp_name):
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+
+    def _secret_file_dirs(self) -> list[Path]:
+        dirs = [
+            self.config_dir / ".secrets",
+            Path.home() / ".config" / "hotspotshield-gui" / ".secrets",
+        ]
+        # CWD secrets only under explicit test flag (still requires USE_SECRETS_FILE).
+        if _env_flag("HOTSPOTSHIELD_ALLOW_CWD_SECRETS"):
+            dirs.insert(0, Path.cwd() / ".secrets")
+        return dirs
 
     def _load_secret_files(self, directory: Path) -> Credentials | None:
         user_path = directory / "hotspotshield_username"
@@ -162,10 +189,14 @@ class SecretStore:
         payload = {
             "username": credentials.username,
             "password": credentials.password,
-            "warning": "Stored with mode 0600 because no desktop keyring was available.",
+            "warning": "Unencrypted file created only because HOTSPOTSHIELD_ALLOW_PLAINTEXT_FALLBACK=1.",
         }
         self._fallback_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         self._fallback_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes"}
 
 
 def default_config_dir() -> Path:

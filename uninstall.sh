@@ -14,6 +14,7 @@ APP_HOME="${XDG_DATA_HOME}/${APP_ID}"
 DESKTOP_FILE="${XDG_DATA_HOME}/applications/${APP_ID}.desktop"
 ICON_FILE="${XDG_DATA_HOME}/icons/hicolor/scalable/apps/${APP_ID}.svg"
 WRAPPER="${XDG_BIN_HOME}/${APP_ID}"
+UNINSTALL_WRAPPER="${XDG_BIN_HOME}/${APP_ID}-uninstall"
 CONFIG_DIR="${XDG_CONFIG_HOME}/${APP_ID}"
 STATE_DIR="${XDG_STATE_HOME}/${APP_ID}"
 
@@ -62,6 +63,7 @@ main() {
     esac
   fi
   remove_path "${WRAPPER}"
+  remove_path "${UNINSTALL_WRAPPER}"
   remove_path "${DESKTOP_FILE}"
   remove_path "${ICON_FILE}"
   remove_path "${APP_HOME}"

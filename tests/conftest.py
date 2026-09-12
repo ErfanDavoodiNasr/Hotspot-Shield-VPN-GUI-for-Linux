@@ -62,8 +62,67 @@ def fake_client(fake_hotspotshield: Path):
     return HotspotShieldClient(ProcessRunner(), executable=str(fake_hotspotshield))
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic tests may persist credentials without a desktop keyring."""
+    monkeypatch.setenv("HOTSPOTSHIELD_ALLOW_PLAINTEXT_FALLBACK", "1")
+
+
 @pytest.fixture()
 def credentials():
     from hotspotshield_gui.security.secret_store import Credentials
 
     return Credentials(username="user@example.com", password="secret-password")
+
+
+@pytest.fixture()
+def scripted_ip_service():
+    """Cycling baseline → VPN egress → post-disconnect IPs for verification."""
+    from hotspotshield_gui.services.ip_service import IpConsensusResult, PublicIpInfo
+
+    class _Scripted:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def lookup(self):
+            agreed = self.lookup_consensus().agreed
+            assert agreed is not None
+            return agreed
+
+        def lookup_consensus(self):
+            phase = self.calls % 3
+            self.calls += 1
+            ip = ("203.0.113.10", "198.51.100.20", "203.0.113.11")[phase]
+            info = PublicIpInfo(ip=ip, country="TS", raw_source="scripted")
+            return IpConsensusResult(agreed=info, samples=(info, info), inconclusive=False)
+
+        def has_basic_connectivity(self, host: str = "1.1.1.1", port: int = 53) -> bool:
+            return True
+
+    return _Scripted()
+
+
+@pytest.fixture()
+def vpn_service(fake_client, scripted_ip_service):
+    from hotspotshield_gui.services.connection_verifier import ConnectionVerifier
+    from hotspotshield_gui.services.vpn_service import VpnService
+
+    verifier = ConnectionVerifier(fake_client, scripted_ip_service)
+    return VpnService(
+        fake_client,
+        ip_service=scripted_ip_service,
+        verifier=verifier,
+        verify_egress=True,
+    )
+
+
+def make_vpn_service(client, ip_service):
+    from hotspotshield_gui.services.connection_verifier import ConnectionVerifier
+    from hotspotshield_gui.services.vpn_service import VpnService
+
+    return VpnService(
+        client,
+        ip_service=ip_service,
+        verifier=ConnectionVerifier(client, ip_service),
+        verify_egress=True,
+    )

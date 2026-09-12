@@ -21,9 +21,12 @@ STATE_COLORS = {
     VpnState.INITIALIZING: "muted",
     VpnState.DISCONNECTED: "muted",
     VpnState.CONNECTING: "warning",
+    VpnState.VERIFYING_CONNECTION: "warning",
     VpnState.CONNECTED: "success",
     VpnState.SWITCHING_LOCATION: "warning",
     VpnState.DISCONNECTING: "warning",
+    VpnState.VERIFYING_DISCONNECTION: "warning",
+    VpnState.UNKNOWN: "danger",
     VpnState.ERROR: "danger",
 }
 

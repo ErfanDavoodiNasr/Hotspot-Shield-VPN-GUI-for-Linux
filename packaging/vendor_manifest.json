@@ -1,0 +1,53 @@
+{
+  "source": "https://repo.hotspotshield.com/",
+  "updated": "2026-09-12",
+  "linux_support_note": "Hotspot Shield discontinued official Linux support on 2025-09-29. Packages below are legacy vendor artifacts still published on the official repo.",
+  "channels": {
+    "stable": {
+      "version": "1.0.7",
+      "label": "Last known release-channel package (deb/rel)",
+      "packages": [
+        {
+          "filename": "hotspotshield_1.0.7_amd64.deb",
+          "arch": "amd64",
+          "type": "deb",
+          "url": "https://repo.hotspotshield.com/deb/rel/all/pool/main/h/hotspotshield/hotspotshield_1.0.7_amd64.deb",
+          "sha256": "6e599a7a5c8719b455c75c4b38c787e29ca5b9edd571d6197c314eeacefe727c",
+          "max_bytes": 20000000
+        },
+        {
+          "filename": "hotspotshield-1.0.7.x86_64.rpm",
+          "arch": "x86_64",
+          "type": "rpm",
+          "url": "https://repo.hotspotshield.com/hotspotshield-1.0.7.x86_64.rpm",
+          "sha256": "6678ad1da674d455dec2476aeae7b036928a7061c403104fc57db560083e900a",
+          "max_bytes": 20000000
+        }
+      ]
+    },
+    "experimental": {
+      "version": "1.1.2",
+      "label": "WireGuard test-only build (vendor: Wirequard. Test only!)",
+      "packages": [
+        {
+          "filename": "hotspotshield_1.1.2_amd64.deb",
+          "arch": "amd64",
+          "type": "deb",
+          "url": "https://repo.hotspotshield.com/wirequard/hotspotshield-1.1.2_amd64.deb",
+          "sha256": "11045845e98f9d8b8fcacbcf066c7b4e08102bb6ce36aa0bd29864418411c2b9",
+          "max_bytes": 20000000
+        },
+        {
+          "filename": "hotspotshield-1.1.2.x86_64.rpm",
+          "arch": "x86_64",
+          "type": "rpm",
+          "url": "https://repo.hotspotshield.com/wirequard/hotspotshield-1.1.2.x86_64.rpm",
+          "sha256": "5f80402651da2087849a9d8046c66d4e711d466d426fd5d58d6558977439b9af",
+          "max_bytes": 20000000
+        }
+      ]
+    }
+  },
+  "default_channel": "stable",
+  "bundling_policy": "Do not treat experimental packages as stable. Prefer an already-installed CLI. Optional local copies may be fetched via scripts/fetch_vendor_cli.sh after SHA256 verification."
+}

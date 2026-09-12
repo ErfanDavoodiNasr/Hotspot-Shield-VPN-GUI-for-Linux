@@ -1,4 +1,4 @@
-"""High-level VPN operations."""
+"""High-level VPN operations with authoritative verification."""
 
 from __future__ import annotations
 
@@ -10,12 +10,17 @@ from hotspotshield_gui.cli.hotspotshield_client import HotspotShieldClient
 from hotspotshield_gui.models.location import Location
 from hotspotshield_gui.models.vpn_state import VpnState, VpnStatusInfo
 from hotspotshield_gui.security.secret_store import Credentials
+from hotspotshield_gui.services.connection_verifier import (
+    ConnectionVerifier,
+    VerificationOutcome,
+)
 from hotspotshield_gui.services.ip_service import IpService, PublicIpInfo
 from hotspotshield_gui.utils.errors import (
     AppError,
     ConnectError,
     DisconnectError,
     SwitchLocationError,
+    VerificationError,
 )
 
 logger = logging.getLogger("hotspotshield_gui.services.vpn_service")
@@ -30,9 +35,16 @@ class VpnService:
         self,
         client: HotspotShieldClient | None = None,
         ip_service: IpService | None = None,
+        verifier: ConnectionVerifier | None = None,
+        *,
+        verify_egress: bool = True,
     ) -> None:
         self.client = client or HotspotShieldClient()
         self.ip_service = ip_service or IpService()
+        self.verifier = verifier or ConnectionVerifier(self.client, self.ip_service)
+        self.verify_egress = verify_egress
+        self._baseline_ip: PublicIpInfo | None = None
+        self._last_vpn_ip: str | None = None
 
     def cli_available(self) -> bool:
         return self.client.available()
@@ -71,6 +83,11 @@ class VpnService:
         code = location.code if isinstance(location, Location) else location
         _progress(progress, "Authenticating…")
         self.ensure_signed_in(credentials, progress=progress)
+
+        if self.verify_egress:
+            _progress(progress, "Measuring public IP…")
+            self._baseline_ip = self.verifier.capture_baseline()
+
         _progress(progress, "Starting VPN service…")
         try:
             self.client.start_service()
@@ -79,19 +96,32 @@ class VpnService:
         _progress(progress, f"Connecting to {code}…")
         info = self.client.connect(code)
         time.sleep(max(0.0, settle_seconds))
-        try:
-            info = self.client.status()
-        except AppError:
-            pass
+        info = self._wait_cli_state(VpnState.CONNECTED, progress=progress)
+
+        _progress(progress, "Verifying connection…")
+        if self.verify_egress:
+            report = self.verifier.verify_connected(
+                expected_location=code,
+                baseline=self._baseline_ip,
+                require_ip_change=self._baseline_ip is not None,
+            )
+            if report.outcome is VerificationOutcome.VERIFIED_CONNECTED:
+                info = report.cli_status or info
+                info.verified = True
+                if report.current_ip is not None:
+                    self._last_vpn_ip = report.current_ip.ip
+                return info
+            if report.outcome is VerificationOutcome.INCONCLUSIVE:
+                raise VerificationError(
+                    "Unable to verify VPN connection.\n\n"
+                    "Hotspot Shield reported connected, but independent network checks "
+                    "could not confirm protection.",
+                    technical="; ".join(report.reasons),
+                )
+            raise ConnectError("; ".join(report.reasons) or "verification failed")
         if info.state is not VpnState.CONNECTED:
-            # Some CLI builds report connected slightly later.
-            for _ in range(5):
-                time.sleep(1.0)
-                info = self.client.status()
-                if info.state is VpnState.CONNECTED:
-                    break
-            else:
-                raise ConnectError(f"VPN did not reach connected state (was {info.state.value})")
+            raise ConnectError(f"VPN did not reach connected state (was {info.state.value})")
+        info.verified = False
         return info
 
     def disconnect(
@@ -99,22 +129,34 @@ class VpnService:
         *,
         progress: ProgressCallback | None = None,
         settle_seconds: float = 1.0,
+        skip_verify: bool = False,
     ) -> VpnStatusInfo:
         _progress(progress, "Disconnecting…")
+        previous = self._last_vpn_ip
         info = self.client.disconnect()
         time.sleep(max(0.0, settle_seconds))
-        try:
-            info = self.client.status()
-        except AppError:
-            pass
+        info = self._wait_cli_state(VpnState.DISCONNECTED, progress=progress, allow_error=True)
+
+        _progress(progress, "Verifying disconnection…")
+        if self.verify_egress and not skip_verify:
+            report = self.verifier.verify_disconnected(
+                previous_vpn_ip=previous,
+                baseline=self._baseline_ip,
+            )
+            if report.outcome is VerificationOutcome.VERIFIED_DISCONNECTED:
+                info = report.cli_status or info
+                info.verified = True
+                self._last_vpn_ip = None
+                return info
+            raise VerificationError(
+                "Unable to verify disconnection.\n\n"
+                "Tunnel state is uncertain. Refresh status or try again.",
+                technical="; ".join(report.reasons),
+            )
         if info.state not in {VpnState.DISCONNECTED, VpnState.ERROR}:
-            for _ in range(5):
-                time.sleep(1.0)
-                info = self.client.status()
-                if info.state is VpnState.DISCONNECTED:
-                    break
-            else:
-                raise DisconnectError(f"VPN still in state {info.state.value}")
+            raise DisconnectError(f"VPN still in state {info.state.value}")
+        info.verified = False
+        self._last_vpn_ip = None
         return info
 
     def switch_location(
@@ -127,8 +169,7 @@ class VpnService:
         _progress(progress, "Changing location…")
         try:
             after = self.disconnect(progress=progress, settle_seconds=1.0)
-        except DisconnectError as exc:
-            # Only continue if we are actually disconnected.
+        except (DisconnectError, VerificationError) as exc:
             try:
                 after = self.client.status()
             except AppError as status_exc:
@@ -150,6 +191,28 @@ class VpnService:
         except AppError as exc:
             logger.warning("IP lookup failed: %s", exc.technical)
             return None
+
+    def _wait_cli_state(
+        self,
+        wanted: VpnState,
+        *,
+        progress: ProgressCallback | None = None,
+        allow_error: bool = False,
+        attempts: int = 5,
+    ) -> VpnStatusInfo:
+        info = self.client.status()
+        if info.state is wanted:
+            return info
+        for _ in range(attempts):
+            time.sleep(1.0)
+            info = self.client.status()
+            if info.state is wanted:
+                return info
+            if allow_error and info.state is VpnState.ERROR and wanted is VpnState.DISCONNECTED:
+                return info
+        if wanted is VpnState.CONNECTED:
+            raise ConnectError(f"VPN did not reach connected state (was {info.state.value})")
+        raise DisconnectError(f"VPN still in state {info.state.value}")
 
 
 def _progress(callback: ProgressCallback | None, message: str) -> None:

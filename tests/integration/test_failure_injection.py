@@ -14,7 +14,6 @@ from hotspotshield_gui.config.settings import SettingsRepository
 from hotspotshield_gui.controllers.vpn_controller import VpnController
 from hotspotshield_gui.models.vpn_state import VpnState
 from hotspotshield_gui.security.secret_store import Credentials, SecretStore
-from hotspotshield_gui.services.vpn_service import VpnService
 from hotspotshield_gui.utils.errors import (
     AuthenticationError,
     CliTimeoutError,
@@ -40,13 +39,20 @@ def test_empty_locations_mode(fake_hotspotshield: Path, fake_state_file: Path, m
 
 
 def test_malformed_locations_controller(
-    fake_hotspotshield: Path, credentials: Credentials, tmp_path: Path, fake_state_file: Path, monkeypatch
+    fake_hotspotshield: Path,
+    credentials: Credentials,
+    tmp_path: Path,
+    fake_state_file: Path,
+    monkeypatch,
+    scripted_ip_service,
 ) -> None:
+    from tests.conftest import make_vpn_service
+
     monkeypatch.setenv("FAKE_HS_MODE", "malformed_output")
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     ctrl = VpnController(
-        service=VpnService(_client(fake_hotspotshield)),
+        service=make_vpn_service(_client(fake_hotspotshield), scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )

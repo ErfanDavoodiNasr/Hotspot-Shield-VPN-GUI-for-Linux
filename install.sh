@@ -144,20 +144,17 @@ detect_hotspotshield() {
     return 0
   fi
   warn "Hotspot Shield CLI not found on PATH."
-  local deb="${REPO_ROOT}/hotspotshield_1.0.7_amd64.deb"
-  if [[ -f "${deb}" ]]; then
-    if [[ "${ARCH_NORM}" != "amd64" ]]; then
-      warn "Bundled package is amd64-only; this machine is ${ARCH_NORM}."
-      warn "Install an official package for your architecture from Hotspot Shield."
-      return 0
-    fi
-    warn "A vendor package is present in the repository: hotspotshield_1.0.7_amd64.deb"
-    warn "Install it manually when ready (requires root):"
-    warn "  sudo apt install ./hotspotshield_1.0.7_amd64.deb"
-    warn "Or follow: https://support.hotspotshield.com/hc/en-us/articles/360039108912"
-  else
-    warn "Download Hotspot Shield for Linux from your account page, then install the .deb/.rpm."
-  fi
+  warn "Hotspot Shield discontinued official Linux support on 2025-09-29."
+  warn "This GUI is unofficial and targets the legacy Linux CLI only."
+  warn "Preferred install path:"
+  warn "  1) Use an already-installed hotspotshield on PATH, or"
+  warn "  2) Fetch the STABLE package with SHA256 verification:"
+  warn "       ./scripts/fetch_vendor_cli.sh stable"
+  warn "     then: sudo apt install ./vendor/hotspotshield_1.0.7_amd64.deb"
+  warn "Experimental WireGuard builds (1.1.2) are NOT the default:"
+  warn "       ./scripts/fetch_vendor_cli.sh experimental"
+  warn "Official index: https://repo.hotspotshield.com/"
+  warn "Manifest: packaging/vendor_manifest.json"
 }
 
 create_venv_and_install() {
@@ -184,14 +181,17 @@ create_venv_and_install() {
 
 install_launcher() {
   local wrapper="${XDG_BIN_HOME}/${APP_ID}"
+  local uninstall_wrapper="${XDG_BIN_HOME}/${APP_ID}-uninstall"
   local desktop_src="${REPO_ROOT}/packaging/${APP_ID}.desktop"
   local desktop_dst="${DESKTOP_DIR}/${APP_ID}.desktop"
   local icon_src="${REPO_ROOT}/assets/icons/hotspotshield-gui.svg"
   local icon_dst_dir="${ICON_DIR}/scalable/apps"
   local icon_dst="${icon_dst_dir}/${APP_ID}.svg"
+  local bundled_uninstall="${APP_HOME}/uninstall.sh"
 
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "[dry-run] would write wrapper ${wrapper}"
+    log "[dry-run] would write uninstall wrapper ${uninstall_wrapper}"
     log "[dry-run] would install desktop entry ${desktop_dst}"
     return 0
   fi
@@ -202,6 +202,15 @@ set -Eeuo pipefail
 exec "${VENV_DIR}/bin/hotspotshield-gui" "\$@"
 EOF
   chmod 755 "${wrapper}"
+
+  # Installed uninstall entrypoint — users should not need the git checkout.
+  install -m 0755 "${REPO_ROOT}/uninstall.sh" "${bundled_uninstall}"
+  cat > "${uninstall_wrapper}" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec "${bundled_uninstall}" "\$@"
+EOF
+  chmod 755 "${uninstall_wrapper}"
 
   mkdir -p "${icon_dst_dir}"
   if [[ -f "${icon_src}" ]]; then
@@ -227,8 +236,8 @@ EOF
     *":${XDG_BIN_HOME}:"*) ok "\$HOME/.local/bin is on PATH" ;;
     *)
       warn "\$HOME/.local/bin is not on your PATH."
-      warn "Add this line to ~/.bashrc (or ~/.profile), then open a new terminal:"
-      warn "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+      warn "You can still launch from the application menu."
+      warn "For a terminal command, add: export PATH=\"\$HOME/.local/bin:\$PATH\""
       ;;
   esac
 }
@@ -278,7 +287,10 @@ main() {
   log "Or run:"
   log "  ${APP_ID}"
   log ""
-  log "Ensure ~/.local/bin is on your PATH."
+  log "Uninstall later (no git checkout needed):"
+  log "  ${APP_ID}-uninstall"
+  log ""
+  log "Ensure ~/.local/bin is on your PATH (desktop launcher works without it)."
   if [[ "${ASSUME_UNSUPPORTED}" -eq 1 ]]; then
     warn "You installed on an untested distribution; please report issues."
   fi

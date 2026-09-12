@@ -26,7 +26,7 @@ COPY tests ./tests
 COPY scripts ./scripts
 COPY assets ./assets
 COPY packaging ./packaging
-COPY install.sh uninstall.sh Makefile ./
+COPY --chmod=0755 install.sh uninstall.sh Makefile ./
 
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \

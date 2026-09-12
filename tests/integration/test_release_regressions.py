@@ -11,7 +11,6 @@ from hotspotshield_gui.config.settings import SettingsRepository
 from hotspotshield_gui.controllers.vpn_controller import VpnController
 from hotspotshield_gui.models.vpn_state import VpnState
 from hotspotshield_gui.security.secret_store import Credentials, SecretStore
-from hotspotshield_gui.services.vpn_service import VpnService
 
 
 def _wait(controller: VpnController, predicate, timeout: float = 8.0) -> None:
@@ -25,11 +24,13 @@ def _wait(controller: VpnController, predicate, timeout: float = 8.0) -> None:
 
 
 @pytest.fixture()
-def ctrl(fake_client, credentials: Credentials, tmp_path: Path):
+def ctrl(fake_client, credentials: Credentials, tmp_path: Path, scripted_ip_service):
+    from tests.conftest import make_vpn_service
+
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     controller = VpnController(
-        service=VpnService(fake_client),
+        service=make_vpn_service(fake_client, scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )
@@ -117,7 +118,14 @@ def test_cancel_while_connecting(ctrl: VpnController, monkeypatch) -> None:
     ctrl.disconnect()  # cancel
     _wait(
         ctrl,
-        lambda: ctrl.machine.state in {VpnState.DISCONNECTED, VpnState.DISCONNECTING, VpnState.CONNECTED},
+        lambda: ctrl.machine.state
+        in {
+            VpnState.DISCONNECTED,
+            VpnState.DISCONNECTING,
+            VpnState.CONNECTED,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        },
         timeout=8,
     )
     _wait(ctrl, lambda: not ctrl.is_busy() and ctrl.machine.state is VpnState.DISCONNECTED, timeout=8)
@@ -140,7 +148,7 @@ def test_double_connect_already_established(ctrl: VpnController) -> None:
     loc = next(loc for loc in ctrl.locations if loc.code == "US")
     ctrl.select_location(loc)
     ctrl.connect()
-    _wait(ctrl, lambda: ctrl.machine.state is VpnState.CONNECTED)
+    _wait(ctrl, lambda: ctrl.machine.state is VpnState.CONNECTED and not ctrl.is_busy(), timeout=20)
     # Direct client double-connect should be treated as already connected
     info = ctrl.service.client.connect("US")
     assert info.state is VpnState.CONNECTED

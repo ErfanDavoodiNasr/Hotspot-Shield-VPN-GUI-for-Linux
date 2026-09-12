@@ -1,4 +1,4 @@
-"""Hardened subprocess runner."""
+"""Hardened subprocess runner with cancellable process groups."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import subprocess
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from hotspotshield_gui.utils.errors import (
     CliNotFoundError,
     CliPermissionError,
     CliTimeoutError,
+    OperationCancelledError,
 )
 
 logger = logging.getLogger("hotspotshield_gui.cli.process_runner")
@@ -32,10 +34,11 @@ class CommandResult:
     stderr: str
     duration_seconds: float
     timed_out: bool = False
+    cancelled: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.returncode == 0 and not self.timed_out
+        return self.returncode == 0 and not self.timed_out and not self.cancelled
 
     @property
     def combined(self) -> str:
@@ -44,11 +47,12 @@ class CommandResult:
 
 @dataclass
 class ProcessRunner:
-    """Run external commands safely (no shell)."""
+    """Run external commands safely (no shell), with optional cancel."""
 
     env_overrides: Mapping[str, str] = field(default_factory=dict)
     default_timeout: float = DEFAULT_TIMEOUT
     path_prepend: Sequence[str] = field(default_factory=tuple)
+    poll_interval: float = 0.1
 
     def run(
         self,
@@ -58,6 +62,7 @@ class ProcessRunner:
         input_text: str | None = None,
         cwd: str | Path | None = None,
         check: bool = False,
+        cancel_event: threading.Event | None = None,
     ) -> CommandResult:
         if not argv:
             raise ValueError("argv must not be empty")
@@ -69,57 +74,81 @@ class ProcessRunner:
         if self.path_prepend:
             env["PATH"] = os.pathsep.join([*self.path_prepend, env.get("PATH", "")])
         env.update(self.env_overrides)
-        # Avoid leaking locale surprises; keep LANG if present.
         env.setdefault("LC_ALL", "C.UTF-8")
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise OperationCancelledError(" ".join(argv))
 
         logger.debug("Running command: %s", list(argv))
         started = time.monotonic()
         try:
-            completed = subprocess.run(  # noqa: S603 — argv is a list, no shell
+            proc = subprocess.Popen(  # noqa: S603 — argv list, no shell
                 list(argv),
-                input=input_text,
-                capture_output=True,
+                stdin=subprocess.PIPE if input_text is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
                 cwd=str(cwd) if cwd else None,
                 env=env,
-                check=False,
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise CliNotFoundError(argv[0]) from exc
         except PermissionError as exc:
             raise CliPermissionError(argv[0]) from exc
-        except subprocess.TimeoutExpired as exc:
-            stdout = _decode(exc.stdout)
-            stderr = _decode(exc.stderr)
-            duration = time.monotonic() - started
-            logger.warning("Command timed out after %.1fs: %s", timeout, argv)
-            # Best-effort cleanup of any lingering children is handled by
-            # subprocess.run killing the process group on timeout in py3.11+,
-            # and the TimeoutExpired path already terminates the process.
-            result = CommandResult(
-                argv=tuple(argv),
-                returncode=-1,
-                stdout=_truncate(stdout),
-                stderr=_truncate(stderr),
-                duration_seconds=duration,
-                timed_out=True,
-            )
-            raise CliTimeoutError(" ".join(argv)) from None
         except OSError as exc:
             raise AppError(
                 "Unable to run Hotspot Shield command.",
                 technical=str(exc),
             ) from exc
 
+        cancelled = False
+        timed_out = False
+        try:
+            if input_text is not None and proc.stdin is not None:
+                try:
+                    proc.stdin.write(input_text)
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+
+            deadline = time.monotonic() + timeout
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    _terminate_group(proc)
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    _terminate_group(proc)
+                    break
+                try:
+                    proc.wait(timeout=min(self.poll_interval, max(0.01, remaining)))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+
+            stdout, stderr = proc.communicate(timeout=2.0)
+        except Exception:
+            _terminate_group(proc)
+            raise
+
         duration = time.monotonic() - started
         result = CommandResult(
             argv=tuple(argv),
-            returncode=completed.returncode,
-            stdout=_truncate(completed.stdout or ""),
-            stderr=_truncate(completed.stderr or ""),
+            returncode=-1 if (timed_out or cancelled) else int(proc.returncode or 0),
+            stdout=_truncate(stdout or ""),
+            stderr=_truncate(stderr or ""),
             duration_seconds=duration,
+            timed_out=timed_out,
+            cancelled=cancelled,
         )
+        if cancelled:
+            raise OperationCancelledError(" ".join(argv))
+        if timed_out:
+            logger.warning("Command timed out after %.1fs: %s", timeout, argv)
+            raise CliTimeoutError(" ".join(argv))
         if check and not result.ok:
             raise AppError(
                 "Hotspot Shield returned an unexpected response.",
@@ -140,32 +169,35 @@ class ProcessRunner:
 
 def terminate_process(proc: subprocess.Popen[str], *, grace: float = 2.0) -> None:
     """Terminate a process, escalating to SIGKILL if needed."""
+    _terminate_group(proc, grace=grace)
+
+
+def _terminate_group(proc: subprocess.Popen[str], *, grace: float = 2.0) -> None:
     if proc.poll() is not None:
         return
     try:
-        proc.terminate()
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
         try:
-            proc.wait(timeout=grace)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-        proc.kill()
-        proc.wait(timeout=grace)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(proc.pid, signal.SIGKILL)
+            proc.terminate()
         except OSError:
             return
-
-
-def _decode(data: str | bytes | None) -> str:
-    if data is None:
-        return ""
-    if isinstance(data, bytes):
-        return data.decode("utf-8", errors="replace")
-    return data
+    try:
+        proc.wait(timeout=grace)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            return
+    try:
+        proc.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        return
 
 
 def _truncate(text: str, limit: int = MAX_OUTPUT_BYTES) -> str:

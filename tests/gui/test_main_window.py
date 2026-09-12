@@ -13,7 +13,7 @@ tk = pytest.importorskip("tkinter")
 
 
 @pytest.mark.gui
-def test_main_window_starts(fake_client, credentials, tmp_path, monkeypatch) -> None:
+def test_main_window_starts(fake_client, credentials, tmp_path, monkeypatch, scripted_ip_service) -> None:
     # Skip if no display and no xvfb assumption — CI sets DISPLAY.
     if not os.environ.get("DISPLAY") and os.name != "nt":
         pytest.skip("No DISPLAY for GUI test")
@@ -21,14 +21,14 @@ def test_main_window_starts(fake_client, credentials, tmp_path, monkeypatch) -> 
     from hotspotshield_gui.config.settings import SettingsRepository
     from hotspotshield_gui.controllers.vpn_controller import VpnController
     from hotspotshield_gui.security.secret_store import SecretStore
-    from hotspotshield_gui.services.vpn_service import VpnService
     from hotspotshield_gui.ui.main_window import MainWindow
     from hotspotshield_gui.ui.theme import LIGHT
+    from tests.conftest import make_vpn_service
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     controller = VpnController(
-        service=VpnService(fake_client),
+        service=make_vpn_service(fake_client, scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )

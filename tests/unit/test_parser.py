@@ -84,6 +84,18 @@ def test_parse_status_disconnected() -> None:
     assert info.state is VpnState.DISCONNECTED
 
 
+def test_parse_status_ambiguous_connected_word_is_unknown() -> None:
+    for blob in (
+        "Not connected\n",
+        "Previously connected\n",
+        "Failed while connected\n",
+        "Could not verify connected state\n",
+        "Disconnected\n",
+    ):
+        info = parse_status(blob)
+        assert info.state is not VpnState.CONNECTED, blob
+
+
 def test_parse_status_empty() -> None:
     with pytest.raises(ParseError):
         parse_status("   ")

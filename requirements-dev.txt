@@ -1,2 +1,0 @@
-# Development requirements (also declared in pyproject.toml [project.optional-dependencies].dev)
--e .[dev]

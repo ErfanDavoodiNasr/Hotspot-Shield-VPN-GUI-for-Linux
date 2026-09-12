@@ -109,24 +109,40 @@ def parse_status(output: str) -> VpnStatusInfo:
 
 
 def _map_state_token(token: str | None, full: str) -> VpnState:
+    """Map CLI state conservatively — never invent CONNECTED from loose wording."""
     text = (token or "").strip().lower()
     blob = full.lower()
-    if text in {"connected"} or "vpn connection state : connected" in blob:
+    # Prefer the explicit status field when present.
+    if "vpn connection state" in blob:
+        explicit = re.search(
+            r"vpn connection state\s*:\s*(connected|disconnected|connecting|disconnecting|intermediate|unknown)",
+            blob,
+        )
+        if explicit:
+            value = explicit.group(1)
+            if value == "connected":
+                return VpnState.CONNECTED
+            if value == "disconnected":
+                return VpnState.DISCONNECTED
+            if value == "connecting":
+                return VpnState.CONNECTING
+            if value == "disconnecting":
+                return VpnState.DISCONNECTING
+            if value == "intermediate":
+                return VpnState.CONNECTING
+            return VpnState.UNKNOWN
+    if text in {"connected"}:
         return VpnState.CONNECTED
-    if text in {"disconnected"} or "vpn connection state : disconnected" in blob:
+    if text in {"disconnected"}:
         return VpnState.DISCONNECTED
     if text in {"connecting"}:
         return VpnState.CONNECTING
     if text in {"disconnecting"}:
         return VpnState.DISCONNECTING
     if "intermediate" in text:
-        # Intermediate states are treated as connecting for UI purposes.
         return VpnState.CONNECTING
-    if "connected" in blob and "disconnected" not in blob:
-        return VpnState.CONNECTED
-    if "disconnected" in blob:
-        return VpnState.DISCONNECTED
-    return VpnState.ERROR
+    # Ambiguous prose like "previously connected" / "not connected" must not become CONNECTED.
+    return VpnState.UNKNOWN
 
 
 def filter_locations(locations: Iterable[Location], query: str) -> list[Location]:

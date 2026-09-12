@@ -1,4 +1,5 @@
 # Live VPN validation image (amd64). Secrets must be mounted at runtime — never baked in.
+# Uses the STABLE vendor channel (1.0.7), never the experimental WireGuard test build.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -15,15 +16,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
     iptables \
     libdbus-1-3 \
+    libnl-3-200 \
+    libnl-genl-3-200 \
+    libnl-route-3-200 \
     dbus \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Vendor CLI (amd64)
-COPY hotspotshield_1.0.7_amd64.deb /tmp/hotspotshield.deb
+# Download + verify stable Hotspot Shield CLI from the official HTTPS repo (no curl|bash).
+COPY packaging/vendor_manifest.json /tmp/vendor_manifest.json
+RUN python3 - <<'PY'
+import hashlib, json, ssl, urllib.request
+from pathlib import Path
+manifest = json.loads(Path("/tmp/vendor_manifest.json").read_text())
+pkg = next(p for p in manifest["channels"]["stable"]["packages"] if p["type"] == "deb")
+url, expected, max_bytes = pkg["url"], pkg["sha256"].lower(), int(pkg["max_bytes"])
+assert url.startswith("https://repo.hotspotshield.com/")
+req = urllib.request.Request(url, headers={"User-Agent": "hotspotshield-gui-docker/1.0"})
+with urllib.request.urlopen(req, timeout=120, context=ssl.create_default_context()) as resp:
+    assert resp.status == 200
+    data = resp.read(max_bytes + 1)
+assert len(data) <= max_bytes
+digest = hashlib.sha256(data).hexdigest()
+assert digest == expected, (digest, expected)
+Path("/tmp/hotspotshield.deb").write_bytes(data)
+print("verified", digest)
+PY
 RUN dpkg -i /tmp/hotspotshield.deb || true \
     && apt-get update && apt-get install -y -f --no-install-recommends \
-    && rm -f /tmp/hotspotshield.deb
+    && rm -f /tmp/hotspotshield.deb \
+    && dpkg -l hotspotshield | grep -E '^ii' \
+    && (hotspotshield version || true) \
+    && test -x /usr/bin/hotspotshield
 
 # Unprivileged user required by Hotspot Shield CLI
 RUN useradd -m -s /bin/bash hsuser \

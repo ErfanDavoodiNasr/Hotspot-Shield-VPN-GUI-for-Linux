@@ -7,7 +7,6 @@ from pathlib import Path
 from hotspotshield_gui.models.location import Location
 from hotspotshield_gui.security.secret_store import migrate_legacy_vpnconfig
 from hotspotshield_gui.services.ip_service import IpService, PublicIpInfo
-from hotspotshield_gui.services.network_service import NetworkService
 from hotspotshield_gui.utils.logging import setup_logging
 
 
@@ -24,10 +23,10 @@ def test_public_ip_display() -> None:
     assert "X" in text
 
 
-def test_network_service_online_false(monkeypatch) -> None:
-    svc = NetworkService(IpService(timeout=0.1))
-    monkeypatch.setattr(svc.ip_service, "has_basic_connectivity", lambda **_: False)
-    assert svc.online() is False
+def test_ip_service_connectivity_false(monkeypatch) -> None:
+    svc = IpService(timeout=0.1)
+    monkeypatch.setattr(svc, "has_basic_connectivity", lambda **_: False)
+    assert svc.has_basic_connectivity() is False
 
 
 def test_setup_logging(tmp_path: Path, monkeypatch) -> None:

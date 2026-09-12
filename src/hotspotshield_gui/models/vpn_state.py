@@ -11,27 +11,82 @@ class VpnState(str, Enum):
     INITIALIZING = "initializing"
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
+    VERIFYING_CONNECTION = "verifying_connection"
     CONNECTED = "connected"
     SWITCHING_LOCATION = "switching_location"
     DISCONNECTING = "disconnecting"
+    VERIFYING_DISCONNECTION = "verifying_disconnection"
+    UNKNOWN = "unknown"
     ERROR = "error"
 
 
 ALLOWED_TRANSITIONS: Final[dict[VpnState, frozenset[VpnState]]] = {
-    VpnState.INITIALIZING: frozenset({VpnState.DISCONNECTED, VpnState.CONNECTED, VpnState.ERROR}),
-    VpnState.DISCONNECTED: frozenset({VpnState.CONNECTING, VpnState.INITIALIZING, VpnState.ERROR}),
-    # Cancel connect → DISCONNECTING or DISCONNECTED
+    VpnState.INITIALIZING: frozenset(
+        {VpnState.DISCONNECTED, VpnState.CONNECTED, VpnState.UNKNOWN, VpnState.ERROR}
+    ),
+    VpnState.DISCONNECTED: frozenset(
+        {VpnState.CONNECTING, VpnState.INITIALIZING, VpnState.UNKNOWN, VpnState.ERROR}
+    ),
     VpnState.CONNECTING: frozenset(
-        {VpnState.CONNECTED, VpnState.DISCONNECTED, VpnState.DISCONNECTING, VpnState.ERROR}
+        {
+            VpnState.VERIFYING_CONNECTION,
+            VpnState.CONNECTED,
+            VpnState.DISCONNECTED,
+            VpnState.DISCONNECTING,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        }
+    ),
+    VpnState.VERIFYING_CONNECTION: frozenset(
+        {
+            VpnState.CONNECTED,
+            VpnState.DISCONNECTED,
+            VpnState.DISCONNECTING,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        }
     ),
     VpnState.CONNECTED: frozenset(
-        {VpnState.SWITCHING_LOCATION, VpnState.DISCONNECTING, VpnState.ERROR, VpnState.DISCONNECTED}
+        {
+            VpnState.SWITCHING_LOCATION,
+            VpnState.DISCONNECTING,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+            VpnState.DISCONNECTED,
+        }
     ),
-    # Cancel switch → DISCONNECTING
     VpnState.SWITCHING_LOCATION: frozenset(
-        {VpnState.CONNECTED, VpnState.DISCONNECTED, VpnState.DISCONNECTING, VpnState.ERROR}
+        {
+            VpnState.VERIFYING_CONNECTION,
+            VpnState.CONNECTED,
+            VpnState.DISCONNECTED,
+            VpnState.DISCONNECTING,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        }
     ),
-    VpnState.DISCONNECTING: frozenset({VpnState.DISCONNECTED, VpnState.ERROR, VpnState.CONNECTED}),
+    VpnState.DISCONNECTING: frozenset(
+        {
+            VpnState.VERIFYING_DISCONNECTION,
+            VpnState.DISCONNECTED,
+            VpnState.CONNECTED,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        }
+    ),
+    VpnState.VERIFYING_DISCONNECTION: frozenset(
+        {VpnState.DISCONNECTED, VpnState.CONNECTED, VpnState.UNKNOWN, VpnState.ERROR}
+    ),
+    VpnState.UNKNOWN: frozenset(
+        {
+            VpnState.DISCONNECTED,
+            VpnState.CONNECTED,
+            VpnState.CONNECTING,
+            VpnState.DISCONNECTING,
+            VpnState.INITIALIZING,
+            VpnState.ERROR,
+        }
+    ),
     VpnState.ERROR: frozenset(
         {
             VpnState.DISCONNECTED,
@@ -39,6 +94,7 @@ ALLOWED_TRANSITIONS: Final[dict[VpnState, frozenset[VpnState]]] = {
             VpnState.CONNECTING,
             VpnState.DISCONNECTING,
             VpnState.INITIALIZING,
+            VpnState.UNKNOWN,
         }
     ),
 }
@@ -55,6 +111,7 @@ class VpnStatusInfo:
     connected_location_name: str | None = None
     raw_state_token: str | None = None
     details: dict[str, str] = field(default_factory=dict)
+    verified: bool = False
 
     @property
     def is_connected(self) -> bool:
@@ -97,26 +154,34 @@ class StateMachine:
         return self.state in {
             VpnState.INITIALIZING,
             VpnState.CONNECTING,
+            VpnState.VERIFYING_CONNECTION,
             VpnState.DISCONNECTING,
+            VpnState.VERIFYING_DISCONNECTION,
             VpnState.SWITCHING_LOCATION,
         }
 
     @property
     def can_connect(self) -> bool:
-        return self.state in {VpnState.DISCONNECTED, VpnState.ERROR}
+        return self.state in {VpnState.DISCONNECTED, VpnState.ERROR, VpnState.UNKNOWN}
 
     @property
     def can_disconnect(self) -> bool:
         return self.state in {
             VpnState.CONNECTED,
             VpnState.ERROR,
+            VpnState.UNKNOWN,
             VpnState.CONNECTING,
+            VpnState.VERIFYING_CONNECTION,
             VpnState.SWITCHING_LOCATION,
         }
 
     @property
     def can_cancel(self) -> bool:
-        return self.state in {VpnState.CONNECTING, VpnState.SWITCHING_LOCATION}
+        return self.state in {
+            VpnState.CONNECTING,
+            VpnState.VERIFYING_CONNECTION,
+            VpnState.SWITCHING_LOCATION,
+        }
 
     @property
     def display_label(self) -> str:
@@ -124,8 +189,11 @@ class StateMachine:
             VpnState.INITIALIZING: "Checking status…",
             VpnState.DISCONNECTED: "Disconnected",
             VpnState.CONNECTING: "Connecting…",
+            VpnState.VERIFYING_CONNECTION: "Verifying connection…",
             VpnState.CONNECTED: "Connected",
             VpnState.SWITCHING_LOCATION: "Changing location…",
             VpnState.DISCONNECTING: "Disconnecting…",
+            VpnState.VERIFYING_DISCONNECTION: "Verifying disconnection…",
+            VpnState.UNKNOWN: "Connection state unknown",
             VpnState.ERROR: "Error",
         }[self.state]

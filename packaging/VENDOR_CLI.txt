@@ -1,0 +1,24 @@
+# Vendor Hotspot Shield Linux CLI — channel policy
+#
+# Official index: https://repo.hotspotshield.com/
+# Machine-readable: packaging/vendor_manifest.json
+# Fetcher (HTTPS + SHA256, no install): ./scripts/fetch_vendor_cli.sh [stable|experimental]
+#
+# Linux support: Hotspot Shield discontinued official Linux support on 2025-09-29.
+# This project is an unofficial community GUI for the legacy CLI.
+#
+# Channels:
+#   stable       → 1.0.7 (release-channel package under deb/rel)
+#   experimental → 1.1.2 (vendor label: "Wirequard. Test only!")
+#
+# Bundling decision:
+#   Do NOT commit vendor .deb/.rpm blobs into git (size, staleness, redistribution).
+#   Fetch into ./vendor/ after checksum verification when needed for local/Docker live tests.
+#   Production installer defaults to detecting an already-installed CLI, then points users
+#   at the stable fetch path — never silently treats experimental as stable.
+
+stable/hotspotshield_1.0.7_amd64.deb
+  sha256:6e599a7a5c8719b455c75c4b38c787e29ca5b9edd571d6197c314eeacefe727c
+
+experimental/hotspotshield_1.1.2_amd64.deb
+  sha256:11045845e98f9d8b8fcacbcf066c7b4e08102bb6ce36aa0bd29864418411c2b9

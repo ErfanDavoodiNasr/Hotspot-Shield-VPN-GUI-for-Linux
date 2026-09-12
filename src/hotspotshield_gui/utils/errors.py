@@ -183,3 +183,29 @@ class SwitchLocationError(AppError):
             "The current connection could not be closed. Disconnect, then connect to the new location.",
             technical=technical or "Switch failed",
         )
+
+
+class VerificationError(AppError):
+    def __init__(self, user_message: str, *, technical: str | None = None) -> None:
+        super().__init__(user_message, technical=technical, classify=False)
+
+
+class OperationCancelledError(AppError):
+    def __init__(self, command: str = "") -> None:
+        super().__init__(
+            "Cancelled.",
+            technical=f"Cancelled: {command}" if command else "Cancelled",
+            classify=False,
+        )
+
+
+class PlaintextFallbackDisabledError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "No secure keyring is available.\n\n"
+            "Your password was kept for this session only and was not saved to disk.\n"
+            "Install a desktop keyring, or set HOTSPOTSHIELD_ALLOW_PLAINTEXT_FALLBACK=1 "
+            "to opt in to an unencrypted local file (not recommended).",
+            technical="plaintext fallback disabled",
+            classify=False,
+        )

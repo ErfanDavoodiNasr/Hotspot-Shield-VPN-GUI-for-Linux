@@ -28,15 +28,15 @@ test-installer:
 
 test-security:
 	$(PYTEST) tests/security
-	-$(PYTHON) -m bandit -r src -q
-	-$(PYTHON) -m pip_audit
+	$(PYTHON) -m bandit -r src -q
+	$(PYTHON) -m pip_audit
 
 test-live:
 	$(PYTEST) -m live
 
 lint:
 	$(RUFF) check src tests
-	@if command -v shellcheck >/dev/null 2>&1; then shellcheck install.sh uninstall.sh; else echo "shellcheck not installed — skipped"; fi
+	@if command -v shellcheck >/dev/null 2>&1; then shellcheck install.sh uninstall.sh scripts/bootstrap.sh scripts/fetch_vendor_cli.sh; else echo "shellcheck not installed — skipped"; fi
 
 typecheck:
 	$(MYPY) src/hotspotshield_gui

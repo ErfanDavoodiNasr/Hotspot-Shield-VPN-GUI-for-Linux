@@ -46,5 +46,9 @@ tmp/
 ._*
 .AppleDouble
 
-# Extracted vendor packages (keep the .deb if intentionally vendored)
+# Extracted / fetched vendor packages (use scripts/fetch_vendor_cli.sh)
 *.extracted/
+vendor/
+hotspotshield_*.deb
+hotspotshield-*.deb
+hotspotshield-*.rpm

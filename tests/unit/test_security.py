@@ -45,6 +45,7 @@ def test_secret_files_loader(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("HOTSPOTSHIELD_USERNAME", raising=False)
     monkeypatch.delenv("HOTSPOTSHIELD_PASSWORD", raising=False)
     monkeypatch.setenv("HOTSPOTSHIELD_USE_SECRETS_FILE", "1")
+    monkeypatch.setenv("HOTSPOTSHIELD_ALLOW_CWD_SECRETS", "1")
     secrets = tmp_path / ".secrets"
     secrets.mkdir()
     (secrets / "hotspotshield_username").write_text("u@e.com", encoding="utf-8")
@@ -55,6 +56,54 @@ def test_secret_files_loader(tmp_path: Path, monkeypatch) -> None:
     assert creds is not None
     assert creds.username == "u@e.com"
     assert creds.password == "pw"
+
+
+def test_cwd_secrets_ignored_without_flags(tmp_path: Path, monkeypatch) -> None:
+    import builtins
+
+    monkeypatch.delenv("HOTSPOTSHIELD_USERNAME", raising=False)
+    monkeypatch.delenv("HOTSPOTSHIELD_PASSWORD", raising=False)
+    monkeypatch.delenv("HOTSPOTSHIELD_USE_SECRETS_FILE", raising=False)
+    monkeypatch.delenv("HOTSPOTSHIELD_ALLOW_CWD_SECRETS", raising=False)
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir()
+    (secrets / "hotspotshield_username").write_text("evil@e.com", encoding="utf-8")
+    (secrets / "hotspotshield_password").write_text("evil", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
+        if name == "keyring":
+            raise ImportError("no keyring")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    store = SecretStore(config_dir=tmp_path / "cfg")
+    assert store.load() is None
+
+
+def test_plaintext_save_requires_opt_in(tmp_path: Path, monkeypatch) -> None:
+    import builtins
+
+    import pytest
+
+    from hotspotshield_gui.utils.errors import PlaintextFallbackDisabledError
+
+    monkeypatch.setenv("HOTSPOTSHIELD_ALLOW_PLAINTEXT_FALLBACK", "0")
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
+        if name == "keyring":
+            raise ImportError("no keyring")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    store = SecretStore(config_dir=tmp_path)
+    with pytest.raises(PlaintextFallbackDisabledError):
+        store.save(Credentials("a@b.c", "secret"))
+    # Session-only credentials remain usable.
+    assert store.load() is not None
+    assert not store._fallback_path.exists()
 
 
 def test_preferences_never_store_password(tmp_path: Path) -> None:

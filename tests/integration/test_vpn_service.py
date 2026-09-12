@@ -9,7 +9,6 @@ import pytest
 
 from hotspotshield_gui.models.vpn_state import VpnState
 from hotspotshield_gui.security.secret_store import Credentials
-from hotspotshield_gui.services.vpn_service import VpnService
 from hotspotshield_gui.utils.errors import (
     AuthenticationError,
     LocationUnavailableError,
@@ -45,12 +44,12 @@ def test_connect_rejects_whitespace_code(fake_client) -> None:
         fake_client.connect("US NY")
 
 
-def test_switch_via_service(fake_client, credentials: Credentials) -> None:
-    service = VpnService(fake_client)
-    service.connect("US", credentials, settle_seconds=0)
-    info = service.switch_location("DE", credentials)
+def test_switch_via_service(vpn_service, credentials: Credentials) -> None:
+    vpn_service.connect("US", credentials, settle_seconds=0)
+    info = vpn_service.switch_location("DE", credentials)
     assert info.state is VpnState.CONNECTED
     assert info.connected_location_code == "DE"
+    assert info.verified
 
 
 def test_auth_failure_mode(fake_hotspotshield: Path, fake_state_file: Path, monkeypatch) -> None:

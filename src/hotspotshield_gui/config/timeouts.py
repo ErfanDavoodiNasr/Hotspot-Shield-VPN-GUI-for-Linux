@@ -1,0 +1,10 @@
+# Central operation timeouts (seconds).
+
+STATUS = 30.0
+LOGIN = 60.0
+CONNECT = 90.0
+DISCONNECT = 60.0
+LOCATIONS = 60.0
+IP_LOOKUP = 8.0
+SERVICE_START = 30.0
+HELP = 15.0

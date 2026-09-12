@@ -4,16 +4,29 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify installer scripts are executable in Git
+        run: |
+          git ls-files -s install.sh uninstall.sh | tee /tmp/modes.txt
+          grep -E '100755 .+install\.sh$' /tmp/modes.txt
+          grep -E '100755 .+uninstall\.sh$' /tmp/modes.txt
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install system deps
         run: |
@@ -28,15 +41,19 @@ jobs:
       - name: Lint
         run: |
           ruff check src tests
-          shellcheck install.sh uninstall.sh
+          shellcheck install.sh uninstall.sh scripts/bootstrap.sh scripts/fetch_vendor_cli.sh
 
       - name: Typecheck
         run: mypy src/hotspotshield_gui
 
       - name: Security (bandit)
-        run: bandit -r src -q
+        run: bandit -r src -q -x '**/._*'
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit
 
       - name: Secret scan (gitleaks)
+        if: matrix.python-version == '3.12'
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,11 +62,11 @@ jobs:
         run: |
           xvfb-run -a pytest -m "not live" --cov=hotspotshield_gui --cov-report=term-missing --cov-report=xml
 
-      - name: Installer dry-run
+      - name: Installer as executable (user path)
         run: ./install.sh --dry-run --yes
 
       - name: Upload coverage
-        if: always()
+        if: always() && matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
@@ -67,7 +84,7 @@ jobs:
         run: |
           docker build -f docker/Dockerfile.installer -t hotspotshield-gui:installer .
           docker history hotspotshield-gui:installer
-      - name: Run installer in clean container
+      - name: Run installer exactly as users do
         run: |
           docker run --rm hotspotshield-gui:installer ./install.sh --yes
-          docker run --rm hotspotshield-gui:installer bash -lc './install.sh --yes && ./install.sh --yes --upgrade && ./uninstall.sh --yes'
+          docker run --rm hotspotshield-gui:installer bash -lc './install.sh --yes && ./install.sh --yes --upgrade && ./uninstall.sh --yes && test ! -e "$HOME/.local/bin/hotspotshield-gui"'

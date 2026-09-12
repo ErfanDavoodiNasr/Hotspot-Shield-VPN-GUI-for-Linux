@@ -15,7 +15,11 @@ from hotspotshield_gui.models.vpn_state import StateMachine, VpnState, VpnStatus
 from hotspotshield_gui.security.secret_store import Credentials, SecretStore
 from hotspotshield_gui.services.ip_service import PublicIpInfo
 from hotspotshield_gui.services.vpn_service import VpnService
-from hotspotshield_gui.utils.errors import AppError
+from hotspotshield_gui.utils.errors import (
+    AppError,
+    OperationCancelledError,
+    PlaintextFallbackDisabledError,
+)
 
 logger = logging.getLogger("hotspotshield_gui.controllers.vpn_controller")
 
@@ -50,6 +54,8 @@ class VpnController:
         self._worker: threading.Thread | None = None
         self._cancel_requested = threading.Event()
         self._closed = False
+        self._ip_generation = 0
+        self.service.client.cancel_event = self._cancel_requested
 
     def _emit(self, name: str, **payload: Any) -> None:
         if self._closed:
@@ -95,33 +101,59 @@ class VpnController:
         self._emit("progress", message=message)
 
     def _reconcile_after_error(self, fallback_message: str, technical: str | None = None) -> None:
-        """Map UI to real CLI state after a failure so we never strand Connecting."""
         try:
             info = self.service.refresh_status()
             self.status_info = info
-            self._set_state(info.state, force=True)
+            # Do not claim CONNECTED from CLI alone after a verification failure path —
+            # map connected CLI without verified flag to UNKNOWN when message says verify.
+            if info.state is VpnState.CONNECTED and "verify" in fallback_message.lower():
+                self._set_state(VpnState.UNKNOWN, force=True, error=fallback_message)
+            else:
+                self._set_state(info.state, force=True)
             self._emit("status", info=info)
-            self._emit(
-                "error",
-                message=fallback_message,
-                technical=technical,
-            )
+            self._emit("error", message=fallback_message, technical=technical)
             self._set_progress(self.machine.display_label)
         except AppError:
-            self._set_state(VpnState.ERROR, error=fallback_message, force=True)
+            self._set_state(VpnState.UNKNOWN, error=fallback_message, force=True)
             self._emit("error", message=fallback_message, technical=technical)
 
-    def _run_bg(self, target: Callable[[], None], *, name: str) -> bool:
-        """Start a worker. Caller must only enter busy states AFTER this returns True."""
+    def _run_bg(
+        self,
+        target: Callable[[], None],
+        *,
+        name: str,
+        enter_state: VpnState | None = None,
+        progress: str | None = None,
+    ) -> bool:
         with self._lock:
             if self._worker and self._worker.is_alive():
                 self._emit("notice", message="Please wait for the current operation to finish.")
                 return False
             self._cancel_requested.clear()
+            if enter_state is not None:
+                self.machine.force(enter_state)
+            if progress is not None:
+                self.progress_message = progress
 
             def wrapper() -> None:
                 try:
                     target()
+                except OperationCancelledError:
+                    try:
+                        info = self.service.disconnect(
+                            progress=self._set_progress, settle_seconds=0.2, skip_verify=True
+                        )
+                        self.status_info = info
+                    except AppError:
+                        try:
+                            info = self.service.refresh_status()
+                            self.status_info = info
+                        except AppError:
+                            info = None
+                    self._set_state(VpnState.DISCONNECTED, force=True)
+                    if info is not None:
+                        self._emit("status", info=info)
+                    self._set_progress("Cancelled")
                 except AppError as exc:
                     logger.warning("%s failed: %s", name, exc.technical)
                     self._reconcile_after_error(exc.user_message, exc.technical)
@@ -137,13 +169,16 @@ class VpnController:
 
             self._worker = threading.Thread(target=wrapper, name=name, daemon=True)
             self._worker.start()
-            return True
+        if enter_state is not None:
+            self._emit_state()
+        if progress is not None:
+            self._emit("progress", message=progress)
+        return True
 
     def is_busy(self) -> bool:
         with self._lock:
             return bool(self._worker and self._worker.is_alive()) or self.machine.busy
 
-    # --- public API ----------------------------------------------------
     def initialize(self) -> None:
         self._set_state(VpnState.INITIALIZING, force=True)
         self._set_progress("Checking status…")
@@ -168,7 +203,11 @@ class VpnController:
             try:
                 info = self.service.refresh_status()
                 self.status_info = info
-                self._set_state(info.state, force=True)
+                # Startup: CLI connected is shown as connected; egress not yet verified.
+                if info.state is VpnState.CONNECTED:
+                    self._set_state(VpnState.CONNECTED, force=True)
+                else:
+                    self._set_state(info.state, force=True)
                 self._emit("status", info=info)
             except AppError as exc:
                 self._set_state(VpnState.DISCONNECTED, force=True)
@@ -242,33 +281,60 @@ class VpnController:
             info = self.service.connect(location, creds, progress=self._set_progress)
             if self._cancel_requested.is_set():
                 try:
-                    info = self.service.disconnect(progress=self._set_progress, settle_seconds=0.5)
+                    info = self.service.disconnect(
+                        progress=self._set_progress, settle_seconds=0.5, skip_verify=True
+                    )
                 except AppError:
-                    info = self.service.refresh_status()
+                    try:
+                        info = self.service.refresh_status()
+                    except AppError:
+                        self._set_state(VpnState.DISCONNECTED, force=True)
+                        self._set_progress("Cancelled")
+                        return
                 self.status_info = info
-                self._set_state(info.state, force=True)
+                # Cancel must not leave the user in CONNECTED/UNKNOWN from a half-finished connect.
+                if info.state is VpnState.CONNECTED:
+                    try:
+                        info = self.service.disconnect(
+                            progress=self._set_progress, settle_seconds=0.2, skip_verify=True
+                        )
+                        self.status_info = info
+                    except AppError:
+                        self._set_state(VpnState.UNKNOWN, force=True)
+                        self._set_progress("Cancelled")
+                        return
+                target = (
+                    VpnState.DISCONNECTED
+                    if info.state in {VpnState.DISCONNECTED, VpnState.ERROR}
+                    else VpnState.DISCONNECTED
+                )
+                self._set_state(target, force=True)
                 self._emit("status", info=info)
                 self._set_progress("Cancelled")
                 return
             self.status_info = info
             self.settings.remember_location(location.code)
             self.settings_repo.save(self.settings)
-            try:
-                self.secret_store.save(creds)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not persist credentials: %s", exc)
+            self._persist_credentials(creds)
+            if not info.verified and self.service.verify_egress:
+                self._set_state(VpnState.UNKNOWN, force=True)
+                self._emit(
+                    "error",
+                    message="Unable to verify VPN connection.\n\nDo not assume you are protected.",
+                    technical="unverified connected status",
+                )
+                return
             self._set_state(VpnState.CONNECTED, force=True)
             self._emit("status", info=info)
             self._refresh_ip_silent()
             self._set_progress("Connected")
 
-        if not self._run_bg(work, name="connect"):
+        if not self._run_bg(
+            work, name="connect", enter_state=VpnState.CONNECTING, progress="Connecting…"
+        ):
             return
-        self._set_state(VpnState.CONNECTING)
-        self._set_progress("Connecting…")
 
     def disconnect(self) -> None:
-        # Allow cancel while connecting / switching, and recovery from ERROR.
         cli_up = bool(self.status_info and self.status_info.is_connected)
         if (
             not self.machine.can_disconnect
@@ -287,16 +353,27 @@ class VpnController:
         def work() -> None:
             info = self.service.disconnect(progress=self._set_progress)
             self.status_info = info
+            if not info.verified and self.service.verify_egress:
+                self._set_state(VpnState.UNKNOWN, force=True)
+                self._emit(
+                    "error",
+                    message="Unable to verify disconnection.\n\nTunnel state is uncertain.",
+                    technical="unverified disconnect",
+                )
+                return
             self._set_state(VpnState.DISCONNECTED, force=True)
             self._emit("status", info=info)
             self._refresh_ip_silent()
             self._set_progress("Disconnected")
 
-        if not self._run_bg(work, name="disconnect"):
+        if not self._run_bg(
+            work,
+            name="disconnect",
+            enter_state=VpnState.DISCONNECTING,
+            progress="Disconnecting…",
+        ):
             self._emit("notice", message="Please wait for the current operation to finish.")
             return
-        self._set_state(VpnState.DISCONNECTING)
-        self._set_progress("Disconnecting…")
 
     def switch_location(self, location: Location, credentials: Credentials | None = None) -> None:
         if self.machine.busy or self.is_busy():
@@ -312,27 +389,40 @@ class VpnController:
             info = self.service.switch_location(location, creds, progress=self._set_progress)
             if self._cancel_requested.is_set():
                 try:
-                    info = self.service.disconnect(progress=self._set_progress, settle_seconds=0.5)
+                    info = self.service.disconnect(
+                        progress=self._set_progress, settle_seconds=0.5, skip_verify=True
+                    )
                 except AppError:
                     info = self.service.refresh_status()
                 self.status_info = info
-                self._set_state(info.state, force=True)
+                self._set_state(VpnState.DISCONNECTED, force=True)
                 self._emit("status", info=info)
                 self._set_progress("Cancelled")
                 return
             self.status_info = info
             self.settings.remember_location(location.code)
             self.settings_repo.save(self.settings)
+            if not info.verified and self.service.verify_egress:
+                self._set_state(VpnState.UNKNOWN, force=True)
+                self._emit(
+                    "error",
+                    message="Unable to verify VPN connection after switching.",
+                    technical="unverified switch",
+                )
+                return
             self._set_state(VpnState.CONNECTED, force=True)
             self._emit("status", info=info)
             self._emit("selection", location=location)
             self._refresh_ip_silent()
             self._set_progress("Connected")
 
-        if not self._run_bg(work, name="switch_location"):
+        if not self._run_bg(
+            work,
+            name="switch_location",
+            enter_state=VpnState.SWITCHING_LOCATION,
+            progress="Changing location…",
+        ):
             return
-        self._set_state(VpnState.SWITCHING_LOCATION)
-        self._set_progress("Changing location…")
 
     def refresh_locations(self) -> None:
         if self.machine.busy or self.is_busy():
@@ -346,7 +436,6 @@ class VpnController:
                 self._emit("locations", locations=list(self.locations))
                 self._set_progress(self.machine.display_label)
             except AppError as exc:
-                # Never corrupt Connected/Disconnected into Error for a list failure.
                 self._emit("locations_error", message=exc.user_message, technical=exc.technical)
                 self._set_progress(self.machine.display_label)
 
@@ -368,15 +457,31 @@ class VpnController:
         self._run_bg(work, name="refresh_status")
 
     def _refresh_ip_silent(self) -> None:
+        with self._lock:
+            self._ip_generation += 1
+            generation = self._ip_generation
+
         def work() -> None:
             try:
-                self.public_ip = self.service.lookup_ip()
-                self._emit("ip", info=self.public_ip)
+                info = self.service.lookup_ip()
             except Exception as exc:  # noqa: BLE001
                 logger.debug("IP refresh failed: %s", exc)
-                self._emit("ip", info=None)
+                info = None
+            with self._lock:
+                if generation != self._ip_generation or self._closed:
+                    return
+                self.public_ip = info
+            self._emit("ip", info=info)
 
         threading.Thread(target=work, name="ip-refresh", daemon=True).start()
+
+    def _persist_credentials(self, creds: Credentials) -> None:
+        try:
+            self.secret_store.save(creds)
+        except PlaintextFallbackDisabledError as exc:
+            self._emit("notice", message=exc.user_message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not persist credentials: %s", exc)
 
     def save_credentials(self, credentials: Credentials) -> None:
         self.secret_store.save(credentials)

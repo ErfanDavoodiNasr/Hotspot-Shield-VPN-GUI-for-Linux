@@ -10,6 +10,7 @@ from hotspotshield_gui.controllers.vpn_controller import VpnController
 from hotspotshield_gui.models.vpn_state import VpnState
 from hotspotshield_gui.security.secret_store import Credentials, SecretStore
 from hotspotshield_gui.services.vpn_service import VpnService
+from tests.conftest import make_vpn_service
 
 
 def _wait(controller: VpnController, predicate, timeout: float = 10.0) -> None:
@@ -22,8 +23,8 @@ def _wait(controller: VpnController, predicate, timeout: float = 10.0) -> None:
     raise AssertionError(f"timeout; state={controller.machine.state}")
 
 
-def _fast_service(client) -> VpnService:
-    svc = VpnService(client)
+def _fast_service(client, ip_service) -> VpnService:
+    svc = make_vpn_service(client, ip_service)
 
     def fast_connect(location, credentials, *, progress=None, settle_seconds=0):
         return VpnService.connect(svc, location, credentials, progress=progress, settle_seconds=0)
@@ -46,11 +47,13 @@ def _fast_service(client) -> VpnService:
     return svc
 
 
-def test_connect_disconnect_cycles(fake_client, credentials: Credentials, tmp_path: Path) -> None:
+def test_connect_disconnect_cycles(
+    fake_client, credentials: Credentials, tmp_path: Path, scripted_ip_service
+) -> None:
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     ctrl = VpnController(
-        service=_fast_service(fake_client),
+        service=_fast_service(fake_client, scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )
@@ -66,13 +69,15 @@ def test_connect_disconnect_cycles(fake_client, credentials: Credentials, tmp_pa
     ctrl.shutdown()
 
 
-def test_rapid_search_filtering(fake_client, credentials: Credentials, tmp_path: Path) -> None:
+def test_rapid_search_filtering(
+    fake_client, credentials: Credentials, tmp_path: Path, scripted_ip_service
+) -> None:
     from hotspotshield_gui.cli.parser import filter_locations
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     ctrl = VpnController(
-        service=VpnService(fake_client),
+        service=make_vpn_service(fake_client, scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )
@@ -85,11 +90,13 @@ def test_rapid_search_filtering(fake_client, credentials: Credentials, tmp_path:
     ctrl.shutdown()
 
 
-def test_rapid_location_switch(fake_client, credentials: Credentials, tmp_path: Path) -> None:
+def test_rapid_location_switch(
+    fake_client, credentials: Credentials, tmp_path: Path, scripted_ip_service
+) -> None:
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
     ctrl = VpnController(
-        service=_fast_service(fake_client),
+        service=_fast_service(fake_client, scripted_ip_service),
         secret_store=store,
         settings_repo=SettingsRepository(store),
     )
@@ -102,9 +109,13 @@ def test_rapid_location_switch(fake_client, credentials: Credentials, tmp_path: 
     for i in range(20):
         target = b if i % 2 == 0 else a
         ctrl.switch_location(target)
-        _wait(ctrl, lambda t=target: ctrl.machine.state is VpnState.CONNECTED and not ctrl.is_busy())
-        assert ctrl.status_info is not None
-        assert ctrl.status_info.connected_location_code == target.code
+        _wait(
+            ctrl,
+            lambda t=target: ctrl.machine.state is VpnState.CONNECTED
+            and not ctrl.is_busy()
+            and ctrl.status_info is not None
+            and ctrl.status_info.connected_location_code == t.code,
+        )
     ctrl.disconnect()
     _wait(ctrl, lambda: ctrl.machine.state is VpnState.DISCONNECTED)
     ctrl.shutdown()

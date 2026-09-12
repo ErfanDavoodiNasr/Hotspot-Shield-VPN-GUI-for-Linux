@@ -14,11 +14,16 @@ pytestmark = pytest.mark.live
 
 
 def _load_live_credentials() -> Credentials:
+    import os
+
+    # Live tests must opt into secret files explicitly.
+    os.environ.setdefault("HOTSPOTSHIELD_USE_SECRETS_FILE", "1")
+    os.environ.setdefault("HOTSPOTSHIELD_ALLOW_CWD_SECRETS", "1")
     store = SecretStore()
     creds = store.load()
     if creds and creds.is_complete():
         return creds
-    pytest.skip("No live credentials available in .secrets/ or environment")
+    pytest.skip("No live credentials available (set HOTSPOTSHIELD_* env or opt-in .secrets/)")
 
 
 def _assert_cli_environment(client: HotspotShieldClient) -> None:

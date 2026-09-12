@@ -1,6 +1,5 @@
 title = "Hotspot Shield GUI"
 
 [[allowlists]]
-description = "Placeholder legacy config"
-paths = ['''vpnconfig\.py''']
+description = "Historical placeholder patterns only"
 regexes = ['''your@email\.here''', '''your_password_here''']

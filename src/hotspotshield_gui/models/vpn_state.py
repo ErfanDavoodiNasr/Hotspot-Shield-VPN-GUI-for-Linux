@@ -22,7 +22,13 @@ class VpnState(str, Enum):
 
 ALLOWED_TRANSITIONS: Final[dict[VpnState, frozenset[VpnState]]] = {
     VpnState.INITIALIZING: frozenset(
-        {VpnState.DISCONNECTED, VpnState.CONNECTED, VpnState.UNKNOWN, VpnState.ERROR}
+        {
+            VpnState.DISCONNECTED,
+            VpnState.VERIFYING_CONNECTION,
+            VpnState.CONNECTED,
+            VpnState.UNKNOWN,
+            VpnState.ERROR,
+        }
     ),
     VpnState.DISCONNECTED: frozenset(
         {VpnState.CONNECTING, VpnState.INITIALIZING, VpnState.UNKNOWN, VpnState.ERROR}

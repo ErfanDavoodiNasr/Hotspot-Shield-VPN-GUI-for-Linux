@@ -16,7 +16,7 @@ logger = logging.getLogger("hotspotshield_gui.security.secret_store")
 
 SERVICE_NAME = "hotspotshield-gui"
 USERNAME_KEY = "username"
-PASSWORD_KEY = "password"  # noqa: S105 — keyring attribute name, not a secret
+PASSWORD_KEY = "password"  # noqa: S105  # nosec B105
 
 
 @dataclass(frozen=True)

@@ -12,14 +12,14 @@ ui/  (Tk)  →  controllers/  →  services/  →  cli/ + security/ + config/
 
 Dependency direction is downward only:
 
-| Layer | Owns | Must not |
-| --- | --- | --- |
-| `ui/` | Widgets, themes, user gestures | subprocess, CLI parsing, credential files, IP providers |
-| `controllers/` | App state machine orchestration, workers, cancel | Tk widgets |
-| `services/` | Connect/disconnect/switch + `ConnectionVerifier` | Tk |
-| `cli/` | ProcessRunner + Hotspot Shield client + parsers | Tk, credentials persistence |
-| `security/` | Keyring / session credentials, redaction | VPN policy |
-| `models/` | `VpnState`, transitions, `Location` | infrastructure |
+| Layer          | Owns                                             | Must not                                                |
+|----------------|--------------------------------------------------|---------------------------------------------------------|
+| `ui/`          | Widgets, themes, user gestures                   | subprocess, CLI parsing, credential files, IP providers |
+| `controllers/` | App state machine orchestration, workers, cancel | Tk widgets                                              |
+| `services/`    | Connect/disconnect/switch + `ConnectionVerifier` | Tk                                                      |
+| `cli/`         | ProcessRunner + Hotspot Shield client + parsers  | Tk, credentials persistence                             |
+| `security/`    | Keyring / session credentials, redaction         | VPN policy                                              |
+| `models/`      | `VpnState`, transitions, `Location`              | infrastructure                                          |
 
 ## Single sources of truth
 

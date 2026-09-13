@@ -78,8 +78,16 @@ class HotspotShieldClient:
     def locations(self, *, timeout: float = timeouts.LOCATIONS) -> list[Location]:
         self.ensure_available()
         result = self._run(self._cmd("locations"), timeout=timeout)
-        text = result.stdout or result.combined
-        if result.returncode != 0 and not text.strip():
+        text = (result.stdout or result.combined or "").strip()
+        lowered = text.lower()
+        if (
+            "can't retrieve" in lowered
+            or "cannot retrieve" in lowered
+            or "pango servers has failed" in lowered
+            or "not signed in" in lowered
+        ):
+            raise LocationListError(text or "locations unavailable")
+        if result.returncode != 0 and not text:
             raise LocationListError(f"exit {result.returncode}")
         try:
             return parse_locations(text)

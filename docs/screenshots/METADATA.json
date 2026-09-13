@@ -1,0 +1,8 @@
+{
+  "commit": "working-tree-pre-commit",
+  "app_version": "1.0.0",
+  "capture_command": "python3 scripts/capture_screenshots.py",
+  "screen_size": "960x640",
+  "display": ":99",
+  "notes": "Captured from real MainWindow under Xvfb via ImageMagick import; fake CLI + scripted IP; no credentials/personal IP."
+}

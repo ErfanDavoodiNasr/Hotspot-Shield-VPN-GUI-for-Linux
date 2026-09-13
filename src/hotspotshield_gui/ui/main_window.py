@@ -244,7 +244,9 @@ class MainWindow:
         if self._can_cancel:
             self.primary_btn.configure(state=tk.NORMAL, text="Cancel", style="Danger.TButton")
             return
-        if state is VpnState.CONNECTED or (state is VpnState.ERROR and self._cli_connected):
+        if state is VpnState.CONNECTED or (
+            self._cli_connected and state in {VpnState.ERROR, VpnState.UNKNOWN}
+        ):
             self.primary_btn.configure(state=tk.NORMAL, text="Disconnect", style="Danger.TButton")
             return
         if state is VpnState.ERROR and self._can_disconnect and not self._cli_connected:
@@ -282,7 +284,7 @@ class MainWindow:
             self.controller.disconnect()
             return
         if self._current_state is VpnState.CONNECTED or (
-            self._current_state is VpnState.ERROR and self._cli_connected
+            self._cli_connected and self._current_state in {VpnState.ERROR, VpnState.UNKNOWN}
         ):
             self.controller.disconnect()
             return
@@ -321,11 +323,28 @@ class MainWindow:
             self.progress_var.set("Account details saved.")
 
     def _toggle_theme(self) -> None:
-        current = self.controller.settings.theme
-        nxt = "dark" if current != "dark" else "light"
+        current = (self.controller.settings.theme or "system").lower()
+        order = ("system", "light", "dark")
+        try:
+            nxt = order[(order.index(current) + 1) % len(order)]
+        except ValueError:
+            nxt = "dark"
         self.controller.settings.theme = nxt
         self.controller.settings_repo.save(self.controller.settings)
-        self.progress_var.set(f"Theme set to {nxt}. Restart the app to apply.")
+        self.apply_theme(resolve_theme(nxt, self.root))
+        self.progress_var.set(f"Theme: {nxt}")
+
+    def apply_theme(self, theme: Theme) -> None:
+        """Apply a theme immediately without restarting the app."""
+        self.theme = theme
+        self.root.configure(bg=theme.bg)
+        configure_styles(self.root, theme)
+        self.badge.apply_theme(theme)
+        self.badge.set_status(
+            self.controller.machine.display_label,
+            color=self._color_for(self._current_state),
+        )
+        self.location_selector.apply_theme(theme)
 
     def _on_close(self) -> None:
         try:

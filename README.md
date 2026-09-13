@@ -5,42 +5,39 @@ Unofficial community desktop GUI for the legacy Hotspot Shield Linux CLI.
 **Not affiliated with Hotspot Shield / Aura.** Hotspot Shield discontinued official Linux support on **2025-09-29**.
 
 ![Main window](docs/screenshots/01-main-disconnected.png)
+![Connected](docs/screenshots/04-connected.png)
 
-## Install (normal users)
+## Install
 
-### Easy install (one command)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux/main/scripts/bootstrap.sh | bash
-```
-
-Pin a release:
-
-```bash
-HOTSPOTSHIELD_GUI_VERSION=1.0.0 curl -fsSL https://raw.githubusercontent.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux/main/scripts/bootstrap.sh | bash
-```
-
-Then open **Hotspot Shield GUI** from your applications menu.
-
-You still need the vendor **Hotspot Shield Linux CLI** (stable **1.0.7**). If it is missing, the app explains how to install it. See `docs/COMPATIBILITY.md`.
-
-### Inspect before running (safer)
-
-Downloading and running a remote script is remote code execution. Prefer:
-
-```bash
-curl -fsSLo bootstrap.sh https://raw.githubusercontent.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux/main/scripts/bootstrap.sh
-less bootstrap.sh
-bash bootstrap.sh
-```
-
-### Developer checkout
+### From a repository checkout (works today)
 
 ```bash
 git clone https://github.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux.git
 cd Hotspot-Shield-VPN-GUI-for-Linux
 ./install.sh
 ```
+
+Then open **Hotspot Shield GUI** from your applications menu.
+
+You still need the vendor **Hotspot Shield Linux CLI** (stable **1.0.7**, **amd64 only**). See `docs/COMPATIBILITY.md`.
+
+### One-line install (only after a GitHub Release exists)
+
+```bash
+# Inspect first (recommended):
+curl -fsSLo bootstrap.sh https://raw.githubusercontent.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux/main/scripts/bootstrap.sh
+less bootstrap.sh
+bash bootstrap.sh
+
+# Or pin a published release (env must be on the bash side of the pipe):
+curl -fsSL https://raw.githubusercontent.com/ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux/main/scripts/bootstrap.sh \
+  | HOTSPOTSHIELD_GUI_VERSION=1.0.0 bash
+```
+
+Bootstrap installs a **tagged GitHub Release**, verifies **SHA256**, and refuses unsigned installs by default. It does *
+*not** install from a moving `main` branch.
+
+Until a Release is published, use the git checkout method above.
 
 ### Vendor CLI (stable channel)
 
@@ -55,6 +52,7 @@ Experimental `1.1.2` is **not** the default (`./scripts/fetch_vendor_cli.sh expe
 
 - Clear status, searchable locations, connect / disconnect / switch
 - Independent egress IP verification before showing Connected
+- Live theme switching (system / light / dark) without restart
 - Keyring-first credentials (session-only if keyring unavailable)
 - Cancel that actually interrupts CLI subprocesses
 
@@ -78,11 +76,14 @@ hotspotshield-gui-uninstall
 ```bash
 python3 -m pip install -e ".[dev]"
 make lint typecheck test test-security
-make test-docker
 ```
 
-Live VPN tests need a real Linux desktop/VM — Docker Desktop is not sufficient.
+Screenshots (Xvfb + real UI classes):
+
+```bash
+python3 scripts/capture_screenshots.py
+```
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see `LICENSE`.

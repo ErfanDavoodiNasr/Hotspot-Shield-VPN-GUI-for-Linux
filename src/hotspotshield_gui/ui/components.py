@@ -103,3 +103,9 @@ class StatusBadge(ttk.Frame):
     def set_status(self, text: str, *, color: str) -> None:
         self.label.configure(text=text)
         self.canvas.itemconfigure(self._dot, fill=color)
+
+    def apply_theme(self, theme: Theme) -> None:
+        self.theme = theme
+        self.configure(style="Card.TFrame")
+        self.canvas.configure(bg=theme.surface)
+        self.label.configure(style="Status.TLabel")

@@ -141,7 +141,7 @@ class IpService:
             },
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310  # nosec B310
             body = response.read(65_536).decode("utf-8", errors="replace").strip()
         if not body:
             return None

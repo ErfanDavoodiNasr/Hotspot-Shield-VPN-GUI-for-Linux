@@ -92,7 +92,11 @@ detect_arch() {
   ARCH="$(uname -m)"
   case "${ARCH}" in
     x86_64|amd64) ARCH_NORM="amd64" ;;
-    aarch64|arm64) ARCH_NORM="arm64" ;;
+    aarch64|arm64)
+      ARCH_NORM="arm64"
+      warn "CPU is ${ARCH_NORM}. The legacy Hotspot Shield Linux CLI packages are amd64-only."
+      warn "GUI may install, but real VPN is UNSUPPORTED on this architecture."
+      ;;
     *) die "Unsupported CPU architecture: ${ARCH}" ;;
   esac
   ok "Architecture detected (${ARCH_NORM})"

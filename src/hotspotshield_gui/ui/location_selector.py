@@ -135,6 +135,17 @@ class LocationSelector(ttk.Frame):
     def focus_search(self) -> None:
         self.search_entry.focus_set()
 
+    def apply_theme(self, theme: Theme) -> None:
+        self.theme = theme
+        self.listbox.configure(
+            highlightcolor=theme.focus,
+            highlightbackground=theme.border,
+            selectbackground=theme.accent,
+            selectforeground=theme.accent_fg,
+            bg=theme.input_bg,
+            fg=theme.input_fg,
+        )
+
     def _clear_query(self, _event: object | None = None) -> str:
         self.search_var.set("")
         self._apply_filter("")

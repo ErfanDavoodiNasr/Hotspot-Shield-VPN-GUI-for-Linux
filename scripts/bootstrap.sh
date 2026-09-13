@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# Bootstrap Hotspot Shield GUI for Linux from a GitHub Release (or tagged source).
+# Bootstrap Hotspot Shield GUI for Linux from a published GitHub Release.
 # This script only downloads, verifies, and invokes the canonical install.sh.
 #
 # Security note: piping this script from the network is remote code execution.
 # Prefer: curl -fsSLo bootstrap.sh <URL> && less bootstrap.sh && bash bootstrap.sh
+#
+# IMPORTANT: when piping, put env vars on the bash side of the pipe:
+#   curl -fsSL …/bootstrap.sh | HOTSPOTSHIELD_GUI_VERSION=1.0.0 bash
 set -Eeuo pipefail
 
 REPO="${HOTSPOTSHIELD_GUI_REPO:-ErfanDavoodiNasr/Hotspot-Shield-VPN-GUI-for-Linux}"
 VERSION="${HOTSPOTSHIELD_GUI_VERSION:-}"
+# Official installs require a SHA256 sidecar. Opt out only for maintainer debugging.
+REQUIRE_CHECKSUM="${HOTSPOTSHIELD_REQUIRE_CHECKSUM:-1}"
 CHANNEL_URL_BASE="https://github.com/${REPO}"
 umask 077
 
@@ -47,11 +52,12 @@ Usage:
   bootstrap.sh [--version X.Y.Z]
 
 Environment:
-  HOTSPOTSHIELD_GUI_VERSION   Pin to a release tag (e.g. 1.0.0)
-  HOTSPOTSHIELD_GUI_REPO      Override GitHub repo (owner/name)
+  HOTSPOTSHIELD_GUI_VERSION     Pin to a release tag (e.g. 1.0.0)
+  HOTSPOTSHIELD_GUI_REPO        Override GitHub repo (owner/name)
+  HOTSPOTSHIELD_REQUIRE_CHECKSUM  Require .sha256 sidecar (default: 1)
 
-This downloads a release source archive, verifies SHA256 when a checksum
-asset is published, then runs install.sh from that tree.
+Downloads a release asset (or tagged source archive), verifies SHA256, then
+runs install.sh. Does not install from an arbitrary moving branch.
 EOF
 }
 
@@ -75,11 +81,10 @@ log "Hotspot Shield GUI bootstrap"
 log "Repository: ${REPO}"
 
 if [[ -z "${VERSION}" ]]; then
-  # Resolve latest release tag via GitHub API (HTTPS).
   api="${CHANNEL_URL_BASE}/releases/latest"
   meta="${TMP}/latest.json"
   if ! download "${api}" "${meta}"; then
-    die "Could not resolve latest release. Set HOTSPOTSHIELD_GUI_VERSION=... explicitly."
+    die "Could not resolve latest release. Publish a GitHub Release, or set HOTSPOTSHIELD_GUI_VERSION=… explicitly. Until a release exists, install from a git checkout: ./install.sh"
   fi
   VERSION="$(python3 - "${meta}" <<'PY' 2>/dev/null || true
 import json,sys
@@ -88,12 +93,11 @@ tag=(data.get("tag_name") or "").lstrip("v")
 print(tag)
 PY
 )"
-  [[ -n "${VERSION}" ]] || die "No GitHub Release found. Publish a release, or pass --version / HOTSPOTSHIELD_GUI_VERSION."
+  [[ -n "${VERSION}" ]] || die "No GitHub Release found. Publish a release first, or install from source with ./install.sh"
 fi
 
 TAG="v${VERSION#v}"
 ARCHIVE_NAME="hotspotshield-gui-${VERSION#v}.tar.gz"
-# Prefer release asset; fall back to GitHub tag tarball (checksum optional then).
 ASSET_URL="${CHANNEL_URL_BASE}/releases/download/${TAG}/${ARCHIVE_NAME}"
 CHECKSUM_URL="${ASSET_URL}.sha256"
 TAG_TARBALL_URL="${CHANNEL_URL_BASE}/archive/refs/tags/${TAG}.tar.gz"
@@ -105,30 +109,29 @@ log "Downloading ${TAG}…"
 if download "${ASSET_URL}" "${ARCHIVE}"; then
   :
 elif download "${TAG_TARBALL_URL}" "${ARCHIVE}"; then
-  log "Note: using tag source archive (no separate release asset)."
+  log "Note: using tag source archive (prefer publishing the named release asset)."
   ARCHIVE_NAME="source-${TAG}.tar.gz"
+  CHECKSUM_URL="${CHANNEL_URL_BASE}/releases/download/${TAG}/${ARCHIVE_NAME}.sha256"
 else
-  die "Failed to download release ${TAG}"
+  die "Failed to download release/tag ${TAG}. Create the GitHub Release/tag first."
 fi
 
-EXPECTED=""
 if download "${CHECKSUM_URL}" "${CHECKSUM_FILE}"; then
   EXPECTED="$(awk '{print $1}' "${CHECKSUM_FILE}" | head -n1 | tr '[:upper:]' '[:lower:]')"
   ACTUAL="$(sha256_file "${ARCHIVE}")"
   if [[ "${EXPECTED}" != "${ACTUAL}" ]]; then
-    die "SHA256 mismatch for ${ARCHIVE_NAME}
- expected ${EXPECTED}
- got      ${ACTUAL}"
+    die "SHA256 mismatch for ${ARCHIVE_NAME}: expected ${EXPECTED}; got ${ACTUAL}"
   fi
   log "SHA256 verified (${ACTUAL})"
 else
-  log "WARNING: no ${ARCHIVE_NAME}.sha256 on the release — integrity not verified beyond HTTPS."
-  log "Maintainers should publish a SHA256 sidecar for every release."
+  if [[ "${REQUIRE_CHECKSUM}" == "1" ]]; then
+    die "Missing ${ARCHIVE_NAME}.sha256 on the release. Refusing to install without checksum (set HOTSPOTSHIELD_REQUIRE_CHECKSUM=0 to override for debugging only)."
+  fi
+  log "WARNING: no checksum sidecar — integrity not verified beyond HTTPS (REQUIRE_CHECKSUM=0)."
 fi
 
 mkdir -p "${TMP}/extract"
 tar -xzf "${ARCHIVE}" -C "${TMP}/extract"
-# GitHub tag archives nest as <repo>-<tag>/
 SRC="$(find "${TMP}/extract" -maxdepth 2 -type f -name install.sh -print -quit | head -n1)"
 [[ -n "${SRC}" ]] || die "install.sh not found in archive"
 ROOT="$(cd "$(dirname "${SRC}")" && pwd)"

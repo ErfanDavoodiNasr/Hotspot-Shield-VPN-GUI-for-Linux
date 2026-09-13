@@ -23,7 +23,7 @@ def test_main_window_starts(fake_client, credentials, tmp_path, monkeypatch, scr
     from hotspotshield_gui.security.secret_store import SecretStore
     from hotspotshield_gui.ui.main_window import MainWindow
     from hotspotshield_gui.ui.theme import LIGHT
-    from tests.conftest import make_vpn_service
+    from tests.support.factories import make_vpn_service
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)

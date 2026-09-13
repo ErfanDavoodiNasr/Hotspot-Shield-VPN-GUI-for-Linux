@@ -28,8 +28,12 @@ def _py_files(*parts: str) -> list[Path]:
     base = ROOT.joinpath(*parts) if parts else ROOT
     if base.is_file():
         return [base]
-    return sorted(base.rglob("*.py"))
-
+    # Skip macOS AppleDouble junk (._*.py) which is not source.
+    return sorted(
+        path
+        for path in base.rglob("*.py")
+        if not path.name.startswith("._") and "__pycache__" not in path.parts
+    )
 
 @pytest.mark.parametrize("path", _py_files("models") + _py_files("cli", "parser.py"))
 def test_domainish_modules_avoid_tkinter(path: Path) -> None:

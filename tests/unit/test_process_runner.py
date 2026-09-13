@@ -35,6 +35,22 @@ def test_runner_rejects_non_string_argv() -> None:
         runner.run(["echo", 1])  # type: ignore[list-item]
 
 
+def test_runner_cancel_before_start() -> None:
+    import inspect
+    import threading
+
+    from hotspotshield_gui.utils.errors import OperationCancelledError
+
+    # Regression: HotspotShieldClient passes cancel_event — signature must accept it.
+    assert "cancel_event" in inspect.signature(ProcessRunner.run).parameters
+
+    runner = ProcessRunner()
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(OperationCancelledError):
+        runner.run([sys.executable, "-c", "print('should-not-run')"], timeout=5, cancel_event=cancel)
+
+
 def test_runner_cancel_interrupts_sleep() -> None:
     import threading
     import time
@@ -53,6 +69,27 @@ def test_runner_cancel_interrupts_sleep() -> None:
     with pytest.raises(OperationCancelledError):
         runner.run([sys.executable, "-c", "import time; time.sleep(30)"], timeout=10, cancel_event=cancel)
     assert time.monotonic() - started < 3.0
+
+
+def test_runner_signin_stdin_does_not_crash_on_auth_failure(tmp_path) -> None:
+    """Regression: closed stdin must not make communicate() raise ValueError."""
+    script = tmp_path / "auth_fail.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stdin.readline()\n"
+        "sys.stdin.readline()\n"
+        "print('Invalid username or password', file=sys.stderr)\n"
+        "raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    runner = ProcessRunner()
+    result = runner.run(
+        [sys.executable, str(script)],
+        timeout=5,
+        input_text="user@example.com\nbad-password\n",
+    )
+    assert result.returncode == 1
+    assert "Invalid" in result.stderr
 
 
 def test_no_shell_metacharacter_execution(tmp_path) -> None:

@@ -10,7 +10,7 @@ from hotspotshield_gui.controllers.vpn_controller import VpnController
 from hotspotshield_gui.models.vpn_state import VpnState
 from hotspotshield_gui.security.secret_store import Credentials, SecretStore
 from hotspotshield_gui.services.vpn_service import VpnService
-from tests.conftest import make_vpn_service
+from tests.support.factories import make_vpn_service
 
 
 def _wait(controller: VpnController, predicate, timeout: float = 10.0) -> None:

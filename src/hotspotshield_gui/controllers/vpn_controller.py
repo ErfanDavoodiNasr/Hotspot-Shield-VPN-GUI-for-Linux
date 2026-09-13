@@ -203,12 +203,12 @@ class VpnController:
             try:
                 info = self.service.refresh_status()
                 self.status_info = info
-                # Startup: CLI connected is shown as connected; egress not yet verified.
                 if info.state is VpnState.CONNECTED:
-                    self._set_state(VpnState.CONNECTED, force=True)
+                    # Never show protected/Connected from CLI text alone.
+                    self._apply_verified_existing_connection(info)
                 else:
                     self._set_state(info.state, force=True)
-                self._emit("status", info=info)
+                    self._emit("status", info=info)
             except AppError as exc:
                 self._set_state(VpnState.DISCONNECTED, force=True)
                 self._emit("notice", message=exc.user_message)
@@ -449,12 +449,54 @@ class VpnController:
         def work() -> None:
             info = self.service.refresh_status()
             self.status_info = info
-            self._set_state(info.state, force=True)
-            self._emit("status", info=info)
+            if info.state is VpnState.CONNECTED:
+                self._apply_verified_existing_connection(info)
+            else:
+                self._set_state(info.state, force=True)
+                self._emit("status", info=info)
             self._refresh_ip_silent()
             self._set_progress(self.machine.display_label)
 
         self._run_bg(work, name="refresh_status")
+
+    def _apply_verified_existing_connection(self, info: VpnStatusInfo) -> None:
+        """CLI says connected — verify egress before claiming CONNECTED."""
+        self._set_state(VpnState.VERIFYING_CONNECTION, force=True)
+        self._set_progress("Verifying existing connection…")
+        if not self.service.verify_egress:
+            info.verified = True
+            self.status_info = info
+            self._set_state(VpnState.CONNECTED, force=True)
+            self._emit("status", info=info)
+            return
+        try:
+            report = self.service.verifier.verify_connected(
+                expected_location=info.connected_location_code,
+                baseline=None,
+                require_ip_change=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Existing-connection verification failed: %s", exc)
+            report = None
+        if report is not None and report.ok and report.cli_status is not None:
+            verified = report.cli_status
+            verified.verified = True
+            self.status_info = verified
+            self._set_state(VpnState.CONNECTED, force=True)
+            self._emit("status", info=verified)
+            return
+        # Honest uncertainty — do not display Connected/Protected.
+        info.verified = False
+        self.status_info = info
+        self._set_state(VpnState.UNKNOWN, force=True)
+        self._emit("status", info=info)
+        self._emit(
+            "notice",
+            message=(
+                "Hotspot Shield reports a connection, but independent verification "
+                "could not confirm protection. Status shown as unknown."
+            ),
+        )
 
     def _refresh_ip_silent(self) -> None:
         with self._lock:

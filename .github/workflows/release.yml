@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install -U pip build
+          pip install -e ".[dev]"
+
+      - name: Version consistency (tag vs pyproject)
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PY="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "tag=$TAG pyproject=$PY"
+          test "$TAG" = "$PY"
+
+      - name: Collect + hermetic gates
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb shellcheck
+          pytest --collect-only -q
+          ruff check src tests
+          mypy src/hotspotshield_gui
+          bandit -r src -q
+          pip-audit
+          shellcheck install.sh uninstall.sh scripts/bootstrap.sh scripts/fetch_vendor_cli.sh
+          xvfb-run -a pytest -m "not live" --cov=hotspotshield_gui --cov-report=term-missing
+
+      - name: Build artifacts
+        run: |
+          python -m build
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist-release
+          cp dist/*.whl dist-release/
+          # Deterministic source archive name expected by bootstrap.sh
+          tar --exclude='.git' --exclude='.venv' --exclude='dist' --exclude='dist-release' \
+            --exclude='__pycache__' --exclude='.pytest_cache' \
+            -czf "dist-release/hotspotshield-gui-${VERSION}.tar.gz" .
+          (
+            cd dist-release
+            sha256sum hotspotshield-gui-${VERSION}.tar.gz *.whl > SHA256SUMS
+            # Sidecar name expected by bootstrap for the source archive
+            awk -v f="hotspotshield-gui-${VERSION}.tar.gz" '$2==f {print $1"  "f}' SHA256SUMS \
+              > "hotspotshield-gui-${VERSION}.tar.gz.sha256"
+          )
+          ls -la dist-release
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist-release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

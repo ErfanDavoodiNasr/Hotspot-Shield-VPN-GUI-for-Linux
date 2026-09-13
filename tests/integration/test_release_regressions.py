@@ -25,7 +25,7 @@ def _wait(controller: VpnController, predicate, timeout: float = 8.0) -> None:
 
 @pytest.fixture()
 def ctrl(fake_client, credentials: Credentials, tmp_path: Path, scripted_ip_service):
-    from tests.conftest import make_vpn_service
+    from tests.support.factories import make_vpn_service
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)

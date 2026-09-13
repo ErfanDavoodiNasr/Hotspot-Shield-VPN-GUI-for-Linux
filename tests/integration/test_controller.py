@@ -23,7 +23,7 @@ def _wait_until(controller: VpnController, predicate, timeout: float = 5.0) -> N
 def test_controller_connect_disconnect(
     fake_client, credentials: Credentials, tmp_path, scripted_ip_service
 ) -> None:
-    from tests.conftest import make_vpn_service
+    from tests.support.factories import make_vpn_service
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)
@@ -54,7 +54,7 @@ def test_controller_connect_disconnect(
 def test_rapid_connect_ignored_while_busy(
     fake_client, credentials: Credentials, tmp_path, monkeypatch, scripted_ip_service
 ) -> None:
-    from tests.conftest import make_vpn_service
+    from tests.support.factories import make_vpn_service
 
     store = SecretStore(config_dir=tmp_path)
     store.save(credentials)

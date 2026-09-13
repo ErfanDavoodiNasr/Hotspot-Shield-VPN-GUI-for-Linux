@@ -40,6 +40,8 @@ def test_bootstrap_shellcheck_if_available() -> None:
 @pytest.mark.installer
 def test_scripts_are_executable_in_git_index() -> None:
     """Regression for Docker exec permission denied (git mode must be 100755)."""
+    if not (ROOT / ".git").exists():
+        pytest.skip("git metadata not present in this environment")
     result = subprocess.run(
         ["git", "ls-files", "-s", "install.sh", "uninstall.sh"],
         cwd=ROOT,

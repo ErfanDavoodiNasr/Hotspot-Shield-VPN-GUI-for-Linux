@@ -46,7 +46,7 @@ def test_malformed_locations_controller(
     monkeypatch,
     scripted_ip_service,
 ) -> None:
-    from tests.conftest import make_vpn_service
+    from tests.support.factories import make_vpn_service
 
     monkeypatch.setenv("FAKE_HS_MODE", "malformed_output")
     store = SecretStore(config_dir=tmp_path)

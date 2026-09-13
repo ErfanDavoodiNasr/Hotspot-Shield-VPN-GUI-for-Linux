@@ -57,7 +57,7 @@ hotspotshield_gui = ["py.typed"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 markers = [
     "live: tests that use a real Hotspot Shield account and network",
     "gui: GUI tests that require Tk / Xvfb",

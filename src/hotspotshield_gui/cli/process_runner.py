@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -82,12 +82,14 @@ class ProcessRunner:
         logger.debug("Running command: %s", list(argv))
         started = time.monotonic()
         try:
-            proc = subprocess.Popen(  # noqa: S603 — argv list, no shell
+            proc = subprocess.Popen(  # noqa: S603  # nosec B603
                 list(argv),
                 stdin=subprocess.PIPE if input_text is not None else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(cwd) if cwd else None,
                 env=env,
                 start_new_session=True,
@@ -108,9 +110,15 @@ class ProcessRunner:
             if input_text is not None and proc.stdin is not None:
                 try:
                     proc.stdin.write(input_text)
-                    proc.stdin.close()
                 except BrokenPipeError:
                     pass
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except OSError:
+                        pass
+                    # Prevent communicate() from flushing an already-closed stdin.
+                    proc.stdin = None
 
             deadline = time.monotonic() + timeout
             while True:
@@ -129,7 +137,20 @@ class ProcessRunner:
                 except subprocess.TimeoutExpired:
                     continue
 
-            stdout, stderr = proc.communicate(timeout=2.0)
+            try:
+                stdout, stderr = proc.communicate(timeout=2.0)
+            except ValueError:
+                # Race: stdin already closed / pipes torn down after terminate.
+                stdout, stderr = "", ""
+                try:
+                    if proc.stdout is not None:
+                        stdout = proc.stdout.read() or ""
+                    if proc.stderr is not None:
+                        stderr = proc.stderr.read() or ""
+                except (OSError, ValueError):
+                    pass
+                if proc.poll() is None:
+                    _terminate_group(proc)
         except Exception:
             _terminate_group(proc)
             raise
